@@ -9,15 +9,22 @@
     "format:check": "oxfmt --check .",
     "test": "bun run vitest run",
     "test:watch": "bun run vitest",
-    "validate": "bun run scripts/validate.ts"
+    "validate": "bun run scripts/validate.ts",
+    "demo": "bun run demo/serve.ts"
   },
   "dependencies": {
-    "effect": "4.0.0-beta.28"
+    "@noble/curves": "^2.0.1",
+    "@noble/hashes": "^2.0.1",
+    "effect": "4.0.0-beta.28",
+    "idb": "^8.0.3",
+    "negentropy": "github:hoytech/negentropy",
+    "nostr-tools": "^2.23.3"
   },
   "devDependencies": {
     "@effect/vitest": "4.0.0-beta.28",
     "@j178/prek": "latest",
     "@types/bun": "^1.3.10",
+    "fake-indexeddb": "^6.2.5",
     "oxfmt": "latest",
     "oxlint": "^1.51.0",
     "typescript": "^5.7.0",

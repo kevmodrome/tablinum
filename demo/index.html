@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>localstr demo</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 600px;
+        margin: 2rem auto;
+        padding: 0 1rem;
+      }
+      h1 {
+        margin-bottom: 1rem;
+      }
+      form {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 1rem;
+      }
+      input {
+        flex: 1;
+        padding: 0.5rem;
+        font-size: 1rem;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+      }
+      button {
+        padding: 0.5rem 1rem;
+        font-size: 1rem;
+        cursor: pointer;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        background: #f5f5f5;
+      }
+      button:hover {
+        background: #e0e0e0;
+      }
+      ul {
+        list-style: none;
+        margin-bottom: 1rem;
+      }
+      li {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 0;
+        border-bottom: 1px solid #eee;
+      }
+      li span {
+        flex: 1;
+      }
+      li button {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.875rem;
+      }
+      #count {
+        color: #666;
+        margin-bottom: 1rem;
+      }
+      .actions {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 1rem;
+        flex-wrap: wrap;
+      }
+      #log {
+        background: #1a1a1a;
+        color: #0f0;
+        padding: 1rem;
+        border-radius: 4px;
+        font-family: monospace;
+        font-size: 0.8rem;
+        white-space: pre-wrap;
+        max-height: 200px;
+        overflow-y: auto;
+      }
+      .key-section {
+        margin-bottom: 1rem;
+        padding: 0.75rem;
+        background: #f9f9f9;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+      }
+      .key-section label {
+        display: block;
+        font-size: 0.85rem;
+        color: #666;
+        margin-bottom: 0.25rem;
+      }
+      .key-display {
+        font-family: monospace;
+        font-size: 0.8rem;
+        word-break: break-all;
+        color: #333;
+        margin-bottom: 0.5rem;
+      }
+      .key-import {
+        display: flex;
+        gap: 0.5rem;
+      }
+      .key-import input {
+        font-family: monospace;
+        font-size: 0.8rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>localstr demo</h1>
+
+    <div class="key-section">
+      <label>Current key:</label>
+      <div class="key-display" id="key-display">loading...</div>
+      <div class="key-import">
+        <input id="import-key" type="text" placeholder="Paste hex private key to import..." />
+        <button id="import-btn">Import Key</button>
+      </div>
+    </div>
+
+    <form id="add-form">
+      <input id="title" type="text" placeholder="Add a todo..." autofocus />
+      <button type="submit">Add</button>
+    </form>
+
+    <div id="count"></div>
+    <ul id="todos"></ul>
+
+    <div class="actions">
+      <button id="sync-btn">Sync</button>
+      <button id="rebuild-btn">Rebuild</button>
+      <button id="copy-btn">Copy Key</button>
+    </div>
+
+    <div id="log"></div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
