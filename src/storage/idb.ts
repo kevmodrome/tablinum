@@ -1,14 +1,7 @@
 import { Effect, Scope } from "effect";
 import { openDB, type IDBPDatabase } from "idb";
 import { StorageError } from "../errors.ts";
-
-export interface StoredRecord {
-  readonly id: string;
-  readonly collection: string;
-  readonly data: Record<string, unknown>;
-  readonly deleted: boolean;
-  readonly updatedAt: number;
-}
+import type { SchemaConfig } from "../schema/types.ts";
 
 export interface StoredEvent {
   readonly id: string;
@@ -26,16 +19,39 @@ export interface StoredGiftWrap {
 }
 
 export interface IDBStorageHandle {
-  readonly putRecord: (record: StoredRecord) => Effect.Effect<void, StorageError>;
+  // Records — per-collection stores with flat shape
+  readonly putRecord: (
+    collection: string,
+    record: Record<string, unknown>,
+  ) => Effect.Effect<void, StorageError>;
   readonly getRecord: (
     collection: string,
     id: string,
-  ) => Effect.Effect<StoredRecord | undefined, StorageError>;
+  ) => Effect.Effect<Record<string, unknown> | undefined, StorageError>;
   readonly getAllRecords: (
     collection: string,
-  ) => Effect.Effect<ReadonlyArray<StoredRecord>, StorageError>;
+  ) => Effect.Effect<ReadonlyArray<Record<string, unknown>>, StorageError>;
   readonly countRecords: (collection: string) => Effect.Effect<number, StorageError>;
-  readonly clearRecords: () => Effect.Effect<void, StorageError>;
+  readonly clearRecords: (collection: string) => Effect.Effect<void, StorageError>;
+
+  // Index-based queries
+  readonly getByIndex: (
+    collection: string,
+    indexName: string,
+    value: IDBValidKey,
+  ) => Effect.Effect<ReadonlyArray<Record<string, unknown>>, StorageError>;
+  readonly getByIndexRange: (
+    collection: string,
+    indexName: string,
+    range: IDBKeyRange,
+  ) => Effect.Effect<ReadonlyArray<Record<string, unknown>>, StorageError>;
+  readonly getAllSorted: (
+    collection: string,
+    indexName: string,
+    direction?: "next" | "prev",
+  ) => Effect.Effect<ReadonlyArray<Record<string, unknown>>, StorageError>;
+
+  // Events
   readonly putEvent: (event: StoredEvent) => Effect.Effect<void, StorageError>;
   readonly getEvent: (id: string) => Effect.Effect<StoredEvent | undefined, StorageError>;
   readonly getAllEvents: () => Effect.Effect<ReadonlyArray<StoredEvent>, StorageError>;
@@ -43,14 +59,35 @@ export interface IDBStorageHandle {
     collection: string,
     recordId: string,
   ) => Effect.Effect<ReadonlyArray<StoredEvent>, StorageError>;
+
+  // Gift wraps
   readonly putGiftWrap: (gw: StoredGiftWrap) => Effect.Effect<void, StorageError>;
   readonly getGiftWrap: (id: string) => Effect.Effect<StoredGiftWrap | undefined, StorageError>;
   readonly getAllGiftWraps: () => Effect.Effect<ReadonlyArray<StoredGiftWrap>, StorageError>;
+
   readonly close: () => Effect.Effect<void>;
 }
 
 const DB_NAME = "localstr";
-const DB_VERSION = 2;
+
+function storeName(collection: string): string {
+  return `col_${collection}`;
+}
+
+function schemaVersion(schema: SchemaConfig): number {
+  const sig = Object.entries(schema)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([name, def]) => {
+      const indices = [...(def.indices ?? [])].sort().join(",");
+      return `${name}:${indices}`;
+    })
+    .join("|");
+  let hash = 1;
+  for (let i = 0; i < sig.length; i++) {
+    hash = (hash * 31 + sig.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash) + 1;
+}
 
 function wrap<T>(label: string, fn: () => Promise<T>): Effect.Effect<T, StorageError> {
   return Effect.tryPromise({
@@ -64,30 +101,79 @@ function wrap<T>(label: string, fn: () => Promise<T>): Effect.Effect<T, StorageE
 }
 
 export function openIDBStorage(
-  dbName?: string,
+  dbName: string | undefined,
+  schema: SchemaConfig,
 ): Effect.Effect<IDBStorageHandle, StorageError, Scope.Scope> {
   return Effect.gen(function* () {
     const name = dbName ?? DB_NAME;
+    const version = schemaVersion(schema);
+
     const db: IDBPDatabase = yield* Effect.tryPromise({
       try: () =>
-        openDB(name, DB_VERSION, {
+        openDB(name, version, {
           upgrade(database) {
-            if (!database.objectStoreNames.contains("records")) {
-              const records = database.createObjectStore("records", {
-                keyPath: ["collection", "id"],
-              });
-              records.createIndex("by-collection", "collection");
-            }
+            // Create events store if missing
             if (!database.objectStoreNames.contains("events")) {
               const events = database.createObjectStore("events", {
                 keyPath: "id",
               });
               events.createIndex("by-record", ["collection", "recordId"]);
             }
+
+            // Create giftwraps store if missing
             if (!database.objectStoreNames.contains("giftwraps")) {
               database.createObjectStore("giftwraps", {
                 keyPath: "id",
               });
+            }
+
+            // Remove old shared records store if it exists
+            if (database.objectStoreNames.contains("records")) {
+              database.deleteObjectStore("records");
+            }
+
+            // Determine which collection stores should exist
+            const expectedStores = new Set<string>();
+            for (const [, def] of Object.entries(schema)) {
+              const sn = storeName(def.name);
+              expectedStores.add(sn);
+
+              if (!database.objectStoreNames.contains(sn)) {
+                // Create new collection store
+                const store = database.createObjectStore(sn, { keyPath: "id" });
+                for (const idx of def.indices ?? []) {
+                  store.createIndex(idx, idx);
+                }
+              } else {
+                // Update indices on existing store
+                const tx = (database as any).transaction;
+                // During upgrade, we can access stores via transaction
+                // The idb library handles this through the upgrade callback
+                const store = (tx as IDBTransaction).objectStore(sn);
+                const existingIndices = new Set(Array.from(store.indexNames));
+                const wantedIndices = new Set(def.indices ?? []);
+
+                // Remove stale indices
+                for (const idx of existingIndices) {
+                  if (!wantedIndices.has(idx)) {
+                    store.deleteIndex(idx);
+                  }
+                }
+                // Add new indices
+                for (const idx of wantedIndices) {
+                  if (!existingIndices.has(idx as string)) {
+                    store.createIndex(idx as string, idx as string);
+                  }
+                }
+              }
+            }
+
+            // Remove collection stores no longer in schema
+            const allStores = Array.from(database.objectStoreNames);
+            for (const existing of allStores) {
+              if (existing.startsWith("col_") && !expectedStores.has(existing)) {
+                database.deleteObjectStore(existing);
+              }
             }
           },
         }),
@@ -101,18 +187,37 @@ export function openIDBStorage(
     yield* Effect.addFinalizer(() => Effect.sync(() => db.close()));
 
     const handle: IDBStorageHandle = {
-      putRecord: (record) =>
-        wrap("putRecord", () => db.put("records", record).then(() => undefined)),
+      putRecord: (collection, record) =>
+        wrap("putRecord", () => db.put(storeName(collection), record).then(() => undefined)),
 
-      getRecord: (collection, id) => wrap("getRecord", () => db.get("records", [collection, id])),
+      getRecord: (collection, id) => wrap("getRecord", () => db.get(storeName(collection), id)),
 
-      getAllRecords: (collection) =>
-        wrap("getAllRecords", () => db.getAllFromIndex("records", "by-collection", collection)),
+      getAllRecords: (collection) => wrap("getAllRecords", () => db.getAll(storeName(collection))),
 
-      countRecords: (collection) =>
-        wrap("countRecords", () => db.countFromIndex("records", "by-collection", collection)),
+      countRecords: (collection) => wrap("countRecords", () => db.count(storeName(collection))),
 
-      clearRecords: () => wrap("clearRecords", () => db.clear("records")),
+      clearRecords: (collection) => wrap("clearRecords", () => db.clear(storeName(collection))),
+
+      getByIndex: (collection, indexName, value) =>
+        wrap("getByIndex", () => db.getAllFromIndex(storeName(collection), indexName, value)),
+
+      getByIndexRange: (collection, indexName, range) =>
+        wrap("getByIndexRange", () => db.getAllFromIndex(storeName(collection), indexName, range)),
+
+      getAllSorted: (collection, indexName, direction) =>
+        wrap("getAllSorted", async () => {
+          const sn = storeName(collection);
+          const tx = db.transaction(sn, "readonly");
+          const store = tx.objectStore(sn);
+          const index = store.index(indexName);
+          const results: Record<string, unknown>[] = [];
+          let cursor = await index.openCursor(null, direction ?? "next");
+          while (cursor) {
+            results.push(cursor.value as Record<string, unknown>);
+            cursor = await cursor.continue();
+          }
+          return results;
+        }),
 
       putEvent: (event) => wrap("putEvent", () => db.put("events", event).then(() => undefined)),
 

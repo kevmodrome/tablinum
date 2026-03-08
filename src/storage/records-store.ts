@@ -1,7 +1,19 @@
 import { Effect } from "effect";
-import type { IDBStorageHandle, StoredEvent, StoredRecord } from "./idb.ts";
+import type { IDBStorageHandle, StoredEvent } from "./idb.ts";
 import { resolveWinner } from "./lww.ts";
 import type { StorageError } from "../errors.ts";
+
+/**
+ * Build a flat record from an event for storage in per-collection IDB stores.
+ */
+function buildRecord(event: StoredEvent): Record<string, unknown> {
+  return {
+    id: event.recordId,
+    _deleted: event.kind === "delete",
+    _updatedAt: event.createdAt,
+    ...(event.data ?? {}),
+  };
+}
 
 /**
  * Apply an event to the records store using LWW resolution.
@@ -25,14 +37,7 @@ export function applyEvent(
     const incomingWon = winner.id === event.id;
 
     if (incomingWon) {
-      const record: StoredRecord = {
-        id: event.recordId,
-        collection: event.collection,
-        data: event.data ?? {},
-        deleted: event.kind === "delete",
-        updatedAt: event.createdAt,
-      };
-      yield* storage.putRecord(record);
+      yield* storage.putRecord(event.collection, buildRecord(event));
     }
 
     return incomingWon;
@@ -42,9 +47,14 @@ export function applyEvent(
 /**
  * Rebuild the records store by clearing it and replaying all events.
  */
-export function rebuild(storage: IDBStorageHandle): Effect.Effect<void, StorageError> {
+export function rebuild(
+  storage: IDBStorageHandle,
+  collections: ReadonlyArray<string>,
+): Effect.Effect<void, StorageError> {
   return Effect.gen(function* () {
-    yield* storage.clearRecords();
+    for (const col of collections) {
+      yield* storage.clearRecords(col);
+    }
     const allEvents = yield* storage.getAllEvents();
 
     // Sort by createdAt for deterministic replay
@@ -60,14 +70,7 @@ export function rebuild(storage: IDBStorageHandle): Effect.Effect<void, StorageE
 
     // Write winning records
     for (const event of winners.values()) {
-      const record: StoredRecord = {
-        id: event.recordId,
-        collection: event.collection,
-        data: event.data ?? {},
-        deleted: event.kind === "delete",
-        updatedAt: event.createdAt,
-      };
-      yield* storage.putRecord(record);
+      yield* storage.putRecord(event.collection, buildRecord(event));
     }
   });
 }

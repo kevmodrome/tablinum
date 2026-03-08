@@ -20,11 +20,15 @@ const log = (msg: string) => {
 };
 
 const app = Effect.gen(function* () {
-  const todos = yield* collection("todos", {
-    title: field.string(),
-    done: field.boolean(),
-    priority: field.number(),
-  });
+  const todos = yield* collection(
+    "todos",
+    {
+      title: field.string(),
+      done: field.boolean(),
+      priority: field.number(),
+    },
+    { indices: ["done", "priority"] },
+  );
 
   const importedKey = getKeyFromUrl();
   // Use a unique DB name per key so imported keys get a fresh DB
@@ -75,8 +79,8 @@ const app = Effect.gen(function* () {
 
   const renderTodos = () =>
     Effect.gen(function* () {
-      const all = yield* col.where("done").pipe(Effect.flatMap((w) => w.equals(false).get()));
-      const done = yield* col.where("done").pipe(Effect.flatMap((w) => w.equals(true).get()));
+      const all = yield* col.where("done").equals(false).sortBy("priority").get();
+      const done = yield* col.where("done").equals(true).get();
       const count = yield* col.count();
 
       const list = document.getElementById("todos")!;

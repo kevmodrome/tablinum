@@ -12,7 +12,13 @@ export type { DatabaseHandle, SyncStatus } from "./db/database-handle.ts";
 
 // CRUD
 export type { CollectionHandle } from "./crud/collection-handle.ts";
-export type { WhereClause, QueryExecutor, QuerySpec } from "./crud/query-builder.ts";
+export type { CollectionOptions } from "./schema/collection.ts";
+export type {
+  WhereClause,
+  QueryBuilder,
+  OrderByBuilder,
+  QueryExecutor,
+} from "./crud/query-builder.ts";
 
 // Errors
 export {

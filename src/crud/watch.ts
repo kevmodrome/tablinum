@@ -1,5 +1,5 @@
 import { Effect, PubSub, Ref, Stream } from "effect";
-import type { IDBStorageHandle, StoredRecord } from "../storage/idb.ts";
+import type { IDBStorageHandle } from "../storage/idb.ts";
 import type { StorageError } from "../errors.ts";
 
 export interface ChangeEvent {
@@ -20,13 +20,13 @@ export function watchCollection<T>(
   ctx: WatchContext,
   storage: IDBStorageHandle,
   collectionName: string,
-  filter?: (record: StoredRecord) => boolean,
-  mapRecord?: (record: StoredRecord) => T,
+  filter?: (record: Record<string, unknown>) => boolean,
+  mapRecord?: (record: Record<string, unknown>) => T,
 ): Stream.Stream<ReadonlyArray<T>, StorageError> {
   const query = (): Effect.Effect<ReadonlyArray<T>, StorageError> =>
     Effect.gen(function* () {
       const all = yield* storage.getAllRecords(collectionName);
-      const filtered = all.filter((r) => !r.deleted && (filter ? filter(r) : true));
+      const filtered = all.filter((r) => !r._deleted && (filter ? filter(r) : true));
       return mapRecord ? filtered.map(mapRecord) : (filtered as unknown as ReadonlyArray<T>);
     });
 

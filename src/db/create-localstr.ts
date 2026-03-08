@@ -67,7 +67,7 @@ export function createLocalstr<S extends SchemaConfig>(
       globalThis.localStorage.setItem(storageKeyName, identity.exportKey());
     }
 
-    const storage = yield* openIDBStorage(config.dbName);
+    const storage = yield* openIDBStorage(config.dbName, config.schema);
 
     // Watch infrastructure
     const pubsub = yield* PubSub.unbounded<ChangeEvent>();
@@ -194,7 +194,10 @@ export function createLocalstr<S extends SchemaConfig>(
           if (closed) {
             return yield* new StorageError({ message: "Database is closed" });
           }
-          yield* rebuildRecords(storage);
+          yield* rebuildRecords(
+            storage,
+            schemaEntries.map(([, def]) => def.name),
+          );
         }),
 
       sync: () =>

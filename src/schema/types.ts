@@ -14,3 +14,6 @@ export type InferRecord<C> =
 
 /** A schema configuration mapping collection names to their definitions. */
 export type SchemaConfig = Record<string, CollectionDef<CollectionFields>>;
+
+/** Extract indexed field names from a CollectionDef. */
+export type IndexedFields<C> = C extends CollectionDef<infer _F> ? C["indices"][number] : never;

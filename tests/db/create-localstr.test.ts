@@ -155,7 +155,7 @@ describe("createLocalstr", () => {
       yield* col.add({ title: "B", done: true } as any);
       yield* col.add({ title: "C", done: false } as any);
 
-      const where = yield* col.where("done");
+      const where = col.where("done");
       const doneItems = yield* where.equals(true).get();
       expect(doneItems.length).toBe(1);
       expect(doneItems[0]!.title).toBe("B");

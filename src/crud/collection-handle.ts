@@ -2,14 +2,14 @@ import { Effect, Stream } from "effect";
 import type { CollectionDef, CollectionFields } from "../schema/collection.ts";
 import type { InferRecord } from "../schema/types.ts";
 import type { RecordValidator, PartialValidator } from "../schema/validate.ts";
-import type { IDBStorageHandle, StoredEvent, StoredRecord } from "../storage/idb.ts";
+import type { IDBStorageHandle, StoredEvent } from "../storage/idb.ts";
 import { applyEvent } from "../storage/records-store.ts";
 import { NotFoundError, StorageError, ValidationError } from "../errors.ts";
 import { uuidv7 } from "../utils/uuid.ts";
 import type { WatchContext } from "./watch.ts";
 import { notifyChange, watchCollection } from "./watch.ts";
-import type { WhereClause } from "./query-builder.ts";
-import { createWhereClause } from "./query-builder.ts";
+import type { WhereClause, OrderByBuilder } from "./query-builder.ts";
+import { createWhereClause, createOrderByBuilder } from "./query-builder.ts";
 
 export interface CollectionHandle<C extends CollectionDef<CollectionFields>> {
   readonly add: (
@@ -24,15 +24,17 @@ export interface CollectionHandle<C extends CollectionDef<CollectionFields>> {
   readonly first: () => Effect.Effect<InferRecord<C> | null, StorageError>;
   readonly count: () => Effect.Effect<number, StorageError>;
   readonly watch: () => Stream.Stream<ReadonlyArray<InferRecord<C>>, StorageError>;
-  readonly where: (
+  readonly where: (field: string & keyof Omit<InferRecord<C>, "id">) => WhereClause<InferRecord<C>>;
+  readonly orderBy: (
     field: string & keyof Omit<InferRecord<C>, "id">,
-  ) => Effect.Effect<WhereClause<InferRecord<C>>, ValidationError>;
+  ) => OrderByBuilder<InferRecord<C>>;
 }
 
 function mapRecord<C extends CollectionDef<CollectionFields>>(
-  record: StoredRecord,
+  record: Record<string, unknown>,
 ): InferRecord<C> {
-  return { id: record.id, ...record.data } as InferRecord<C>;
+  const { _deleted, _updatedAt, ...fields } = record;
+  return fields as InferRecord<C>;
 }
 
 export type OnWriteCallback = (event: StoredEvent) => Effect.Effect<void>;
@@ -77,14 +79,15 @@ export function createCollectionHandle<C extends CollectionDef<CollectionFields>
     update: (id, data) =>
       Effect.gen(function* () {
         const existing = yield* storage.getRecord(collectionName, id);
-        if (!existing || existing.deleted) {
+        if (!existing || existing._deleted) {
           return yield* new NotFoundError({
             collection: collectionName,
             id,
           });
         }
         yield* partialValidator(data);
-        const merged = { ...existing.data, ...data, id };
+        const { _deleted, _updatedAt, ...existingFields } = existing;
+        const merged = { ...existingFields, ...data, id };
         yield* validator(merged);
 
         const event: StoredEvent = {
@@ -108,7 +111,7 @@ export function createCollectionHandle<C extends CollectionDef<CollectionFields>
     delete: (id) =>
       Effect.gen(function* () {
         const existing = yield* storage.getRecord(collectionName, id);
-        if (!existing || existing.deleted) {
+        if (!existing || existing._deleted) {
           return yield* new NotFoundError({
             collection: collectionName,
             id,
@@ -136,7 +139,7 @@ export function createCollectionHandle<C extends CollectionDef<CollectionFields>
     get: (id) =>
       Effect.gen(function* () {
         const record = yield* storage.getRecord(collectionName, id);
-        if (!record || record.deleted) {
+        if (!record || record._deleted) {
           return yield* new NotFoundError({
             collection: collectionName,
             id,
@@ -148,14 +151,14 @@ export function createCollectionHandle<C extends CollectionDef<CollectionFields>
     first: () =>
       Effect.gen(function* () {
         const all = yield* storage.getAllRecords(collectionName);
-        const found = all.find((r) => !r.deleted);
+        const found = all.find((r) => !r._deleted);
         return found ? mapRecord<C>(found) : null;
       }),
 
     count: () =>
       Effect.gen(function* () {
         const all = yield* storage.getAllRecords(collectionName);
-        return all.filter((r) => !r.deleted).length;
+        return all.filter((r) => !r._deleted).length;
       }),
 
     watch: () =>
@@ -163,6 +166,16 @@ export function createCollectionHandle<C extends CollectionDef<CollectionFields>
 
     where: (fieldName) =>
       createWhereClause<InferRecord<C>>(
+        storage,
+        watchCtx,
+        collectionName,
+        def,
+        fieldName,
+        mapRecord,
+      ),
+
+    orderBy: (fieldName) =>
+      createOrderByBuilder<InferRecord<C>>(
         storage,
         watchCtx,
         collectionName,
