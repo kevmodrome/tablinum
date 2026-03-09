@@ -1,7 +1,6 @@
 import { Effect } from "effect";
-// @ts-expect-error -- CJS module without types
-import Neg from "../../node_modules/negentropy/js/Negentropy.js";
-const { Negentropy, NegentropyStorageVector } = Neg;
+// @ts-expect-error -- vendored JS without types
+import { Negentropy, NegentropyStorageVector } from "../vendor/negentropy.js";
 import type { IDBStorageHandle } from "../storage/idb.ts";
 import type { RelayHandle } from "./relay.ts";
 import type { Filter } from "nostr-tools/filter";

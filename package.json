@@ -10,14 +10,14 @@
     "test": "bun run vitest run",
     "test:watch": "bun run vitest",
     "validate": "bun run scripts/validate.ts",
-    "demo": "bun run demo/serve.ts"
+    "demo": "bun run examples/vanilla/serve.ts",
+    "demo:svelte": "cd examples/svelte && bun run dev"
   },
   "dependencies": {
     "@noble/curves": "^2.0.1",
     "@noble/hashes": "^2.0.1",
     "effect": "4.0.0-beta.28",
     "idb": "^8.0.3",
-    "negentropy": "github:hoytech/negentropy",
     "nostr-tools": "^2.23.3"
   },
   "devDependencies": {
@@ -27,7 +27,16 @@
     "fake-indexeddb": "^6.2.5",
     "oxfmt": "latest",
     "oxlint": "^1.51.0",
+    "svelte": "^5.0.0",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
+  },
+  "peerDependencies": {
+    "svelte": "^5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "svelte": {
+      "optional": true
+    }
   }
 }

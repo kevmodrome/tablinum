@@ -5,21 +5,19 @@ import { openIDBStorage } from "../../src/storage/idb.ts";
 import { field } from "../../src/schema/field.ts";
 import { collection } from "../../src/schema/collection.ts";
 
-const makeSchema = () =>
-  Effect.gen(function* () {
-    const todos = yield* collection("todos", {
-      title: field.string(),
-    });
-    const notes = yield* collection("notes", {
-      text: field.string(),
-    });
-    return { todos, notes };
-  });
+const makeSchema = () => ({
+  todos: collection("todos", {
+    title: field.string(),
+  }),
+  notes: collection("notes", {
+    text: field.string(),
+  }),
+});
 
 describe("IDBStorage", () => {
   it.effect("opens and closes without error", () =>
     Effect.gen(function* () {
-      const schema = yield* makeSchema();
+      const schema = makeSchema();
       const storage = yield* openIDBStorage("test-open", schema);
       expect(storage).toBeDefined();
     }),
@@ -27,7 +25,7 @@ describe("IDBStorage", () => {
 
   it.effect("puts and gets a record", () =>
     Effect.gen(function* () {
-      const schema = yield* makeSchema();
+      const schema = makeSchema();
       const storage = yield* openIDBStorage("test-put-get", schema);
       yield* storage.putRecord("todos", {
         id: "r1",
@@ -43,7 +41,7 @@ describe("IDBStorage", () => {
 
   it.effect("gets all records for a collection", () =>
     Effect.gen(function* () {
-      const schema = yield* makeSchema();
+      const schema = makeSchema();
       const storage = yield* openIDBStorage("test-get-all", schema);
       yield* storage.putRecord("todos", {
         id: "r1",
@@ -72,7 +70,7 @@ describe("IDBStorage", () => {
 
   it.effect("clears records store", () =>
     Effect.gen(function* () {
-      const schema = yield* makeSchema();
+      const schema = makeSchema();
       const storage = yield* openIDBStorage("test-clear", schema);
       yield* storage.putRecord("todos", {
         id: "r1",
@@ -88,7 +86,7 @@ describe("IDBStorage", () => {
 
   it.effect("puts and gets events", () =>
     Effect.gen(function* () {
-      const schema = yield* makeSchema();
+      const schema = makeSchema();
       const storage = yield* openIDBStorage("test-events", schema);
       yield* storage.putEvent({
         id: "e1",
@@ -106,7 +104,7 @@ describe("IDBStorage", () => {
 
   it.effect("gets events by record", () =>
     Effect.gen(function* () {
-      const schema = yield* makeSchema();
+      const schema = makeSchema();
       const storage = yield* openIDBStorage("test-events-by-record", schema);
       yield* storage.putEvent({
         id: "e1",
@@ -131,7 +129,7 @@ describe("IDBStorage", () => {
 
   it.effect("puts and gets gift wraps", () =>
     Effect.gen(function* () {
-      const schema = yield* makeSchema();
+      const schema = makeSchema();
       const storage = yield* openIDBStorage("test-giftwraps", schema);
       yield* storage.putGiftWrap({
         id: "gw1",

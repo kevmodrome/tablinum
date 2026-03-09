@@ -8,7 +8,7 @@ import { buildValidator, buildPartialValidator } from "../../src/schema/validate
 describe("schema validation", () => {
   it.effect("validates a correct record", () =>
     Effect.gen(function* () {
-      const def = yield* collection("todos", {
+      const def = collection("todos", {
         title: field.string(),
         done: field.boolean(),
       });
@@ -24,7 +24,7 @@ describe("schema validation", () => {
 
   it.effect("rejects invalid types", () =>
     Effect.gen(function* () {
-      const def = yield* collection("todos", {
+      const def = collection("todos", {
         title: field.string(),
       });
       const validate = buildValidator("todos", def);
@@ -35,7 +35,7 @@ describe("schema validation", () => {
 
   it.effect("handles optional fields", () =>
     Effect.gen(function* () {
-      const def = yield* collection("notes", {
+      const def = collection("notes", {
         text: field.string(),
         tag: field.optional(field.string()),
       });
@@ -51,7 +51,7 @@ describe("schema validation", () => {
 
   it.effect("validates array fields", () =>
     Effect.gen(function* () {
-      const def = yield* collection("lists", {
+      const def = collection("lists", {
         items: field.array(field.string()),
       });
       const validate = buildValidator("lists", def);
@@ -62,7 +62,7 @@ describe("schema validation", () => {
 
   it.effect("partial validator accepts subset of fields", () =>
     Effect.gen(function* () {
-      const def = yield* collection("todos", {
+      const def = collection("todos", {
         title: field.string(),
         done: field.boolean(),
       });
@@ -74,7 +74,7 @@ describe("schema validation", () => {
 
   it.effect("partial validator rejects unknown fields", () =>
     Effect.gen(function* () {
-      const def = yield* collection("todos", {
+      const def = collection("todos", {
         title: field.string(),
       });
       const validate = buildPartialValidator("todos", def);

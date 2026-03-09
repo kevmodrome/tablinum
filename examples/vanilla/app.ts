@@ -1,5 +1,5 @@
 import { Effect, Stream } from "effect";
-import { field, collection, createLocalstr } from "../src/index.ts";
+import { field, collection, createLocalstr } from "../../src/index.ts";
 
 // Read key from URL if present: ?key=<hex>
 function getKeyFromUrl(): Uint8Array | undefined {
@@ -20,7 +20,7 @@ const log = (msg: string) => {
 };
 
 const app = Effect.gen(function* () {
-  const todos = yield* collection(
+  const todos = collection(
     "todos",
     {
       title: field.string(),
@@ -39,10 +39,8 @@ const app = Effect.gen(function* () {
     relays: ["wss://relay.nostr.place"],
     dbName: `localstr-demo${dbSuffix}`,
     privateKey: importedKey,
-    onSyncError: (err: any) => {
-      const msg = err?.message ?? String(err);
-      const url = err?.url ?? "";
-      log(`Sync error: ${msg}${url ? ` (${url})` : ""}`);
+    onSyncError: (err) => {
+      log(`Sync error: ${err.message}`);
     },
   });
 

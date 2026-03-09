@@ -26,7 +26,7 @@ export interface LocalstrConfig<S extends SchemaConfig> {
   readonly relays: readonly string[];
   readonly privateKey?: Uint8Array | undefined;
   readonly dbName?: string | undefined;
-  readonly onSyncError?: ((error: unknown) => void) | undefined;
+  readonly onSyncError?: ((error: Error) => void) | undefined;
 }
 
 export function createLocalstr<S extends SchemaConfig>(

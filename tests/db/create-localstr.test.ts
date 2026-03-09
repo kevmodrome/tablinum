@@ -8,7 +8,7 @@ import { createLocalstr } from "../../src/db/create-localstr.ts";
 describe("createLocalstr", () => {
   it.effect("creates a database and performs CRUD", () =>
     Effect.gen(function* () {
-      const todos = yield* collection("todos", {
+      const todos = collection("todos", {
         title: field.string(),
         done: field.boolean(),
       });
@@ -63,7 +63,7 @@ describe("createLocalstr", () => {
 
   it.effect("rejects missing relays", () =>
     Effect.gen(function* () {
-      const todos = yield* collection("todos", {
+      const todos = collection("todos", {
         title: field.string(),
       });
       const result = yield* Effect.result(
@@ -79,7 +79,7 @@ describe("createLocalstr", () => {
 
   it.effect("exports key", () =>
     Effect.gen(function* () {
-      const todos = yield* collection("todos", {
+      const todos = collection("todos", {
         title: field.string(),
       });
       const db = yield* createLocalstr({
@@ -95,7 +95,7 @@ describe("createLocalstr", () => {
 
   it.effect("rebuild regenerates records from events", () =>
     Effect.gen(function* () {
-      const todos = yield* collection("todos", {
+      const todos = collection("todos", {
         title: field.string(),
         done: field.boolean(),
       });
@@ -124,7 +124,7 @@ describe("createLocalstr", () => {
 
   it.effect("getSyncStatus returns idle", () =>
     Effect.gen(function* () {
-      const todos = yield* collection("todos", {
+      const todos = collection("todos", {
         title: field.string(),
       });
       const db = yield* createLocalstr({
@@ -139,7 +139,7 @@ describe("createLocalstr", () => {
 
   it.effect("where().equals() filters records", () =>
     Effect.gen(function* () {
-      const todos = yield* collection("todos", {
+      const todos = collection("todos", {
         title: field.string(),
         done: field.boolean(),
       });

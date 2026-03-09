@@ -1,10 +1,12 @@
 import { $ } from "bun";
 
+const dir = "examples/vanilla";
+
 // Bundle app.ts for the browser
 console.log("Bundling...");
 const result = await Bun.build({
-  entrypoints: ["demo/app.ts"],
-  outdir: "demo",
+  entrypoints: [`${dir}/app.ts`],
+  outdir: dir,
   target: "browser",
   format: "esm",
   minify: false,
@@ -19,7 +21,7 @@ if (!result.success) {
   process.exit(1);
 }
 
-console.log("Bundle created at demo/app.js");
+console.log(`Bundle created at ${dir}/app.js`);
 
 // Serve
 const server = Bun.serve({
@@ -29,7 +31,7 @@ const server = Bun.serve({
     let path = url.pathname;
     if (path === "/") path = "/index.html";
 
-    const file = Bun.file(`demo${path}`);
+    const file = Bun.file(`${dir}${path}`);
     if (await file.exists()) {
       return new Response(file);
     }

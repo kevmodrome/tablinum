@@ -14,5 +14,5 @@
     "resolveJsonModule": true,
     "sourceMap": true
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts", "scripts/**/*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.svelte.ts", "tests/**/*.ts", "scripts/**/*.ts"]
 }
