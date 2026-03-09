@@ -1,5 +1,11 @@
 # tablinum
 
+## 0.1.2
+
+### Patch Changes
+
+- Update Readme to add Svelte example
+
 ## 0.1.1
 
 ### Patch Changes
