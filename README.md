@@ -36,7 +36,7 @@ npm install tablinum
 
 ```typescript
 import { Effect } from "effect";
-import { createLocalstr, collection, field } from "tablinum";
+import { createTablinum, collection, field } from "tablinum";
 
 const schema = {
   todos: collection("todos", {
@@ -46,7 +46,7 @@ const schema = {
 };
 
 const program = Effect.gen(function* () {
-  const db = yield* createLocalstr({
+  const db = yield* createTablinum({
     schema,
     relays: ["wss://relay.example.com"],
   });

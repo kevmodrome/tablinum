@@ -15,6 +15,11 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./svelte": {
+      "types": "./dist/svelte/index.svelte.d.ts",
+      "svelte": "./dist/svelte/index.svelte.js",
+      "import": "./dist/svelte/index.svelte.js"
     }
   },
   "scripts": {
@@ -27,7 +32,7 @@
     "validate": "bun run scripts/validate.ts",
     "demo": "bun run examples/vanilla/serve.ts",
     "demo:svelte": "cd examples/svelte && bun run dev",
-    "build": "bun build src/index.ts --outdir dist --format esm --packages external && tsc -p tsconfig.build.json --noCheck",
+    "build": "bun build src/index.ts --outdir dist --format esm --packages external && bun build src/svelte/index.svelte.ts --outdir dist/svelte --format esm --packages external && tsc -p tsconfig.build.json --noCheck && tsc -p tsconfig.build.svelte.json --noCheck",
     "changeset": "changeset",
     "version": "changeset version",
     "release": "changeset publish"

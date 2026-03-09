@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onDestroy } from "svelte";
 	import { initDb, type AppSchema, type TodoRecord } from "$lib/db";
-	import type { Database, Collection, LiveQuery } from "localstr/svelte";
+	import type { Database, Collection, LiveQuery } from "tablinum/svelte";
 
 	let db: Database<AppSchema> | null = $state(null);
 	let todos: Collection<AppSchema["todos"]> | null = $state(null);
@@ -85,11 +85,11 @@
 </script>
 
 <svelte:head>
-	<title>localstr Svelte Demo</title>
+	<title>tablinum Svelte Demo</title>
 </svelte:head>
 
 <main>
-	<h1>localstr Svelte Demo</h1>
+	<h1>tablinum Svelte Demo</h1>
 
 	{#if loading}
 		<p>Initializing database...</p>

@@ -1,5 +1,5 @@
 import { Effect, Stream } from "effect";
-import { field, collection, createLocalstr } from "../../src/index.ts";
+import { field, collection, createTablinum } from "../../src/index.ts";
 
 // Read key from URL if present: ?key=<hex>
 function getKeyFromUrl(): Uint8Array | undefined {
@@ -34,10 +34,10 @@ const app = Effect.gen(function* () {
   // Use a unique DB name per key so imported keys get a fresh DB
   const dbSuffix = importedKey ? "-imported" : "";
 
-  const db = yield* createLocalstr({
+  const db = yield* createTablinum({
     schema: { todos },
     relays: ["wss://relay.nostr.place"],
-    dbName: `localstr-demo${dbSuffix}`,
+    dbName: `tablinum-demo${dbSuffix}`,
     privateKey: importedKey,
     onSyncError: (err) => {
       log(`Sync error: ${err.message}`);
@@ -189,7 +189,7 @@ const app = Effect.gen(function* () {
     window.location.search = `?key=${hex.toLowerCase()}`;
   });
 
-  log("localstr initialized");
+  log("tablinum initialized");
   log(`Key: ${fullKey.slice(0, 16)}...`);
 
   yield* renderTodos();
@@ -198,11 +198,11 @@ const app = Effect.gen(function* () {
   yield* col.watch().pipe(
     Stream.runForEach((todos) =>
       Effect.gen(function* () {
-        console.log("[localstr:watch] todos changed:", todos);
+        console.log("[tablinum:watch] todos changed:", todos);
         yield* renderTodos();
       }).pipe(
         Effect.catch((_e) =>
-          Effect.sync(() => console.error("[localstr:watch] render error:", _e)),
+          Effect.sync(() => console.error("[tablinum:watch] render error:", _e)),
         ),
       ),
     ),
