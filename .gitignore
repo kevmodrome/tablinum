@@ -1,0 +1,6 @@
+node_modules/
+dist/
+*.tsbuildinfo
+examples/vanilla/*.js
+examples/svelte/.svelte-kit/
+examples/svelte/build/
