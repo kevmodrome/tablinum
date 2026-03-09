@@ -1,5 +1,11 @@
 # tablinum
 
+## 0.1.3
+
+### Patch Changes
+
+- Sync version with npm registry
+
 ## 0.1.2
 
 ### Patch Changes
