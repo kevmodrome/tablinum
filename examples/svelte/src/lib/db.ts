@@ -1,4 +1,4 @@
-import { createLocalstr, field, collection, type InferRecord } from "localstr/svelte";
+import { createTablinum, field, collection, type InferRecord } from "tablinum/svelte";
 
 const todosCollection = collection(
   "todos",
@@ -30,13 +30,13 @@ export async function initDb() {
   const importedKey = getKeyFromUrl();
   const dbSuffix = importedKey ? "-imported" : "";
 
-  const db = await createLocalstr({
+  const db = await createTablinum({
     schema,
     relays: ["wss://relay.nostr.place"],
-    dbName: `localstr-svelte-demo${dbSuffix}`,
+    dbName: `tablinum-svelte-demo${dbSuffix}`,
     privateKey: importedKey,
     onSyncError: (err) => {
-      console.error("[localstr:sync]", err.message);
+      console.error("[tablinum:sync]", err.message);
     },
   });
 

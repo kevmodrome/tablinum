@@ -7,8 +7,8 @@ const config = {
       fallback: "index.html",
     }),
     alias: {
-      "localstr/svelte": "../../src/svelte/index.svelte.ts",
-      localstr: "../../src/index.ts",
+      "tablinum/svelte": "../../src/svelte/index.svelte.ts",
+      tablinum: "../../src/index.ts",
     },
   },
 };

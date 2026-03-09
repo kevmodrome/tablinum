@@ -3,9 +3,9 @@ import { it } from "@effect/vitest";
 import { Effect } from "effect";
 import { field } from "../../src/schema/field.ts";
 import { collection } from "../../src/schema/collection.ts";
-import { createLocalstr } from "../../src/db/create-localstr.ts";
+import { createTablinum } from "../../src/db/create-tablinum.ts";
 
-describe("createLocalstr", () => {
+describe("createTablinum", () => {
   it.effect("creates a database and performs CRUD", () =>
     Effect.gen(function* () {
       const todos = collection("todos", {
@@ -13,7 +13,7 @@ describe("createLocalstr", () => {
         done: field.boolean(),
       });
 
-      const db = yield* createLocalstr({
+      const db = yield* createTablinum({
         schema: { todos },
         relays: ["wss://relay.example.com"],
         dbName: "test-crud",
@@ -67,7 +67,7 @@ describe("createLocalstr", () => {
         title: field.string(),
       });
       const result = yield* Effect.result(
-        createLocalstr({
+        createTablinum({
           schema: { todos },
           relays: [],
           dbName: "test-no-relays",
@@ -82,7 +82,7 @@ describe("createLocalstr", () => {
       const todos = collection("todos", {
         title: field.string(),
       });
-      const db = yield* createLocalstr({
+      const db = yield* createTablinum({
         schema: { todos },
         relays: ["wss://relay.example.com"],
         dbName: "test-key",
@@ -100,7 +100,7 @@ describe("createLocalstr", () => {
         done: field.boolean(),
       });
 
-      const db = yield* createLocalstr({
+      const db = yield* createTablinum({
         schema: { todos },
         relays: ["wss://relay.example.com"],
         dbName: "test-rebuild",
@@ -127,7 +127,7 @@ describe("createLocalstr", () => {
       const todos = collection("todos", {
         title: field.string(),
       });
-      const db = yield* createLocalstr({
+      const db = yield* createTablinum({
         schema: { todos },
         relays: ["wss://relay.example.com"],
         dbName: "test-status",
@@ -144,7 +144,7 @@ describe("createLocalstr", () => {
         done: field.boolean(),
       });
 
-      const db = yield* createLocalstr({
+      const db = yield* createTablinum({
         schema: { todos },
         relays: ["wss://relay.example.com"],
         dbName: "test-where",

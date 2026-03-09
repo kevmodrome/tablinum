@@ -68,7 +68,7 @@ export interface IDBStorageHandle {
   readonly close: () => Effect.Effect<void>;
 }
 
-const DB_NAME = "localstr";
+const DB_NAME = "tablinum";
 
 function storeName(collection: string): string {
   return `col_${collection}`;

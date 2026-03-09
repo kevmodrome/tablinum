@@ -6,8 +6,8 @@ export type { FieldDef, FieldKind } from "./schema/field.ts";
 export type { InferRecord, SchemaConfig } from "./schema/types.ts";
 
 // Database
-export { createLocalstr } from "./db/create-localstr.ts";
-export type { LocalstrConfig } from "./db/create-localstr.ts";
+export { createTablinum } from "./db/create-tablinum.ts";
+export type { TablinumConfig } from "./db/create-tablinum.ts";
 export type { DatabaseHandle, SyncStatus } from "./db/database-handle.ts";
 
 // CRUD

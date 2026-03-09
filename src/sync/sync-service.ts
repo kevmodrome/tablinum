@@ -146,7 +146,7 @@ export function createSyncHandle(
         );
         if (result._tag === "Failure") {
           yield* publishQueue.enqueue(giftWrap.id);
-          console.error("[localstr:publishLocal] relay error:", result.failure);
+          console.error("[tablinum:publishLocal] relay error:", result.failure);
           if (onSyncError) onSyncError(result.failure);
         }
       }),
@@ -172,10 +172,10 @@ export function createSyncHandle(
             }),
           );
           if (subResult._tag === "Failure") {
-            console.error("[localstr:subscribe] failed for", url, subResult.failure);
+            console.error("[tablinum:subscribe] failed for", url, subResult.failure);
             if (onSyncError) onSyncError(subResult.failure);
           } else {
-            console.log("[localstr:subscribe] listening on", url);
+            console.log("[tablinum:subscribe] listening on", url);
           }
         }
       }),

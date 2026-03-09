@@ -21,7 +21,7 @@ import { createSyncHandle } from "../sync/sync-service.ts";
 import { CryptoError, StorageError, SyncError, ValidationError } from "../errors.ts";
 import { uuidv7 } from "../utils/uuid.ts";
 
-export interface LocalstrConfig<S extends SchemaConfig> {
+export interface TablinumConfig<S extends SchemaConfig> {
   readonly schema: S;
   readonly relays: readonly string[];
   readonly privateKey?: Uint8Array | undefined;
@@ -29,8 +29,8 @@ export interface LocalstrConfig<S extends SchemaConfig> {
   readonly onSyncError?: ((error: Error) => void) | undefined;
 }
 
-export function createLocalstr<S extends SchemaConfig>(
-  config: LocalstrConfig<S>,
+export function createTablinum<S extends SchemaConfig>(
+  config: TablinumConfig<S>,
 ): Effect.Effect<DatabaseHandle<S>, ValidationError | StorageError | CryptoError, Scope.Scope> {
   return Effect.gen(function* () {
     if (!config.relays || config.relays.length === 0) {
@@ -48,7 +48,7 @@ export function createLocalstr<S extends SchemaConfig>(
 
     // Resolve private key: supplied > persisted > generate new
     let resolvedKey = config.privateKey;
-    const storageKeyName = `localstr-key-${config.dbName ?? "localstr"}`;
+    const storageKeyName = `tablinum-key-${config.dbName ?? "tablinum"}`;
     if (!resolvedKey && typeof globalThis.localStorage !== "undefined") {
       const saved = globalThis.localStorage.getItem(storageKeyName);
       if (saved && saved.length === 64) {
@@ -95,7 +95,7 @@ export function createLocalstr<S extends SchemaConfig>(
     // On local write: create gift wrap and publish asynchronously
     const onWrite: OnWriteCallback = (event) =>
       Effect.gen(function* () {
-        console.log("[localstr:onWrite]", event.kind, event.collection, event.recordId);
+        console.log("[tablinum:onWrite]", event.kind, event.collection, event.recordId);
         const content =
           event.kind === "delete" ? JSON.stringify({ _deleted: true }) : JSON.stringify(event.data);
         const dTag = `${event.collection}:${event.recordId}`;
@@ -112,7 +112,7 @@ export function createLocalstr<S extends SchemaConfig>(
         if (wrapResult._tag === "Success") {
           const gw = wrapResult.success;
           console.log(
-            "[localstr:onWrite] gift wrap created:",
+            "[tablinum:onWrite] gift wrap created:",
             gw.id,
             "kind:",
             gw.kind,
@@ -124,7 +124,7 @@ export function createLocalstr<S extends SchemaConfig>(
             event: gw as unknown as Record<string, unknown>,
             createdAt: gw.created_at,
           });
-          console.log("[localstr:onWrite] gift wrap stored, publishing...");
+          console.log("[tablinum:onWrite] gift wrap stored, publishing...");
           const publishEffect = Effect.gen(function* () {
             const pubResult = yield* Effect.result(
               syncHandle.publishLocal({
@@ -135,16 +135,16 @@ export function createLocalstr<S extends SchemaConfig>(
             );
             if (pubResult._tag === "Failure") {
               const err = pubResult.failure;
-              console.error("[localstr:publish] failed:", err);
+              console.error("[tablinum:publish] failed:", err);
               if (config.onSyncError) config.onSyncError(err);
             } else {
-              console.log("[localstr:publish] success");
+              console.log("[tablinum:publish] success");
             }
           });
           yield* Effect.forkDetach(publishEffect);
         } else {
           const err = wrapResult.failure;
-          console.error("[localstr:onWrite] wrap failed:", err);
+          console.error("[tablinum:onWrite] wrap failed:", err);
           if (config.onSyncError) config.onSyncError(err);
         }
       });
