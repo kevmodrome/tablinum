@@ -1,7 +1,18 @@
 {
   "name": "tablinum",
   "version": "0.0.1",
+  "files": [
+    "dist"
+  ],
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
   "scripts": {
     "dev": "bun run src/main.ts",
     "lint": "oxlint",
@@ -12,6 +23,7 @@
     "validate": "bun run scripts/validate.ts",
     "demo": "bun run examples/vanilla/serve.ts",
     "demo:svelte": "cd examples/svelte && bun run dev",
+    "build": "bun build src/index.ts --outdir dist --format esm --packages external && tsc -p tsconfig.build.json --noCheck",
     "changeset": "changeset",
     "version": "changeset version",
     "release": "changeset publish"
