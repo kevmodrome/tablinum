@@ -10,6 +10,10 @@ export { createTablinum } from "./db/create-tablinum.ts";
 export type { TablinumConfig } from "./db/create-tablinum.ts";
 export type { DatabaseHandle, SyncStatus } from "./db/database-handle.ts";
 
+// Invite
+export { encodeInvite, decodeInvite } from "./db/invite.ts";
+export type { Invite } from "./db/invite.ts";
+
 // CRUD
 export type { CollectionHandle } from "./crud/collection-handle.ts";
 export type { CollectionOptions } from "./schema/collection.ts";

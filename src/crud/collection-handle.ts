@@ -33,7 +33,7 @@ export interface CollectionHandle<C extends CollectionDef<CollectionFields>> {
 function mapRecord<C extends CollectionDef<CollectionFields>>(
   record: Record<string, unknown>,
 ): InferRecord<C> {
-  const { _deleted, _updatedAt, ...fields } = record;
+  const { _deleted, _updatedAt, _author, ...fields } = record;
   return fields as InferRecord<C>;
 }
 
@@ -86,7 +86,7 @@ export function createCollectionHandle<C extends CollectionDef<CollectionFields>
           });
         }
         yield* partialValidator(data);
-        const { _deleted, _updatedAt, ...existingFields } = existing;
+        const { _deleted, _updatedAt, _author, ...existingFields } = existing;
         const merged = { ...existingFields, ...data, id };
         yield* validator(merged);
 

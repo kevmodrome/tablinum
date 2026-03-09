@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onDestroy } from "svelte";
 	import { initDb, type AppSchema, type TodoRecord } from "$lib/db";
+	import { encodeInvite } from "tablinum/svelte";
 	import type { Database, Collection, LiveQuery } from "tablinum/svelte";
 
 	let db: Database<AppSchema> | null = $state(null);
@@ -9,17 +10,18 @@
 	let done: LiveQuery<TodoRecord> | null = $state(null);
 
 	let title = $state("");
-	let importKeyHex = $state("");
+	let importInviteCode = $state("");
 	let loading = $state(true);
 	let initError = $state<string | null>(null);
-	let imported = $state(false);
-	let keyCopied = $state(false);
+	let joined = $state(false);
+	let inviteCopied = $state(false);
+	let linkCopied = $state(false);
 
 	async function init() {
 		try {
 			const result = await initDb();
 			db = result.db;
-			imported = result.imported;
+			joined = result.joined;
 			todos = db.collection("todos");
 			incomplete = todos.where("done").equals(false).live();
 			done = todos.where("done").equals(true).live();
@@ -59,22 +61,37 @@
 		await db.rebuild();
 	}
 
-	function copyKey() {
+	function copyInviteCode() {
 		if (!db) return;
-		navigator.clipboard.writeText(db.exportKey()).then(
+		const invite = db.exportInvite();
+		const code = encodeInvite(invite);
+		navigator.clipboard.writeText(code).then(
 			() => {
-				keyCopied = true;
-				setTimeout(() => (keyCopied = false), 2000);
+				inviteCopied = true;
+				setTimeout(() => (inviteCopied = false), 2000);
 			},
 			() => {},
 		);
 	}
 
-	function importKey() {
-		const hex = importKeyHex.trim().toLowerCase();
-		if (hex.length !== 64) return;
-		if (!/^[0-9a-f]+$/.test(hex)) return;
-		window.location.search = `?key=${hex}`;
+	function copyInviteLink() {
+		if (!db) return;
+		const invite = db.exportInvite();
+		const code = encodeInvite(invite);
+		const url = `${window.location.origin}${window.location.pathname}?invite=${code}`;
+		navigator.clipboard.writeText(url).then(
+			() => {
+				linkCopied = true;
+				setTimeout(() => (linkCopied = false), 2000);
+			},
+			() => {},
+		);
+	}
+
+	function joinWithInvite() {
+		const code = importInviteCode.trim();
+		if (!code) return;
+		window.location.search = `?invite=${encodeURIComponent(code)}`;
 	}
 
 	onDestroy(() => {
@@ -96,18 +113,25 @@
 	{:else if initError}
 		<p class="error">Failed to initialize: {initError}</p>
 	{:else if todos && db}
-		<div class="key-section">
-			<label>Current key:</label>
-			<div class="key-display">{db.exportKey()}</div>
-			{#if imported}
-				<p class="imported-badge">Imported from URL</p>
+		<div class="invite-section">
+			<h3>Collaboration</h3>
+			{#if joined}
+				<p class="joined-badge">Joined via invite link</p>
 			{/if}
-			<div class="key-import">
+			<div class="invite-actions">
+				<button onclick={copyInviteCode}
+					>{inviteCopied ? "Copied!" : "Copy Invite Code"}</button
+				>
+				<button onclick={copyInviteLink}
+					>{linkCopied ? "Copied!" : "Copy Invite Link"}</button
+				>
+			</div>
+			<div class="invite-import">
 				<input
-					bind:value={importKeyHex}
-					placeholder="Paste hex private key to import..."
+					bind:value={importInviteCode}
+					placeholder="Paste an invite code to join..."
 				/>
-				<button onclick={importKey}>Import Key</button>
+				<button onclick={joinWithInvite}>Join</button>
 			</div>
 		</div>
 
@@ -128,7 +152,7 @@
 
 		<h2>Todo ({incomplete?.items.length ?? 0})</h2>
 		<ul>
-			{#each incomplete?.items ?? [] as todo}
+			{#each incomplete?.items ?? [] as todo (todo.id)}
 				<li>
 					<label>
 						<input
@@ -147,7 +171,7 @@
 
 		<h2>Done ({done?.items.length ?? 0})</h2>
 		<ul>
-			{#each done?.items ?? [] as todo}
+			{#each done?.items ?? [] as todo (todo.id)}
 				<li class="done">
 					<label>
 						<input
@@ -167,9 +191,6 @@
 		<div class="actions">
 			<button onclick={sync}>Sync</button>
 			<button onclick={rebuild}>Rebuild</button>
-			<button onclick={copyKey}
-				>{keyCopied ? "Copied!" : "Copy Key"}</button
-			>
 		</div>
 	{/if}
 </main>
@@ -198,13 +219,18 @@
 		color: #666;
 	}
 
+	h3 {
+		font-size: 0.95rem;
+		margin-bottom: 0.5rem;
+	}
+
 	form {
 		display: flex;
 		gap: 0.5rem;
 		margin-bottom: 1rem;
 	}
 
-	input[type="text"] {
+	form input {
 		flex: 1;
 		padding: 0.5rem;
 		font-size: 1rem;
@@ -281,7 +307,7 @@
 		margin-bottom: 0.5rem;
 	}
 
-	.key-section {
+	.invite-section {
 		margin-bottom: 1rem;
 		padding: 0.75rem;
 		background: #f9f9f9;
@@ -289,32 +315,38 @@
 		border-radius: 4px;
 	}
 
-	.key-section label {
-		display: block;
-		font-size: 0.85rem;
-		color: #666;
-		margin-bottom: 0.25rem;
-	}
-
-	.key-display {
-		font-family: monospace;
-		font-size: 0.8rem;
-		word-break: break-all;
-		color: #333;
+	.invite-actions {
+		display: flex;
+		gap: 0.5rem;
 		margin-bottom: 0.5rem;
+		flex-wrap: wrap;
 	}
 
-	.key-import {
+	.invite-actions button {
+		font-size: 0.875rem;
+		padding: 0.375rem 0.75rem;
+	}
+
+	.invite-import {
 		display: flex;
 		gap: 0.5rem;
 	}
 
-	.key-import input {
+	.invite-import input {
+		flex: 1;
 		font-family: monospace;
 		font-size: 0.8rem;
+		padding: 0.375rem 0.5rem;
+		border: 1px solid #ccc;
+		border-radius: 4px;
 	}
 
-	.imported-badge {
+	.invite-import button {
+		font-size: 0.875rem;
+		padding: 0.375rem 0.75rem;
+	}
+
+	.joined-badge {
 		font-size: 0.8rem;
 		color: #06c;
 		margin-bottom: 0.5rem;

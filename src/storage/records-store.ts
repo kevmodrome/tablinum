@@ -11,6 +11,7 @@ function buildRecord(event: StoredEvent): Record<string, unknown> {
     id: event.recordId,
     _deleted: event.kind === "delete",
     _updatedAt: event.createdAt,
+    _author: event.author,
     ...(event.data ?? {}),
   };
 }

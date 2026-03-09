@@ -8,11 +8,15 @@ export interface GiftWrapHandle {
   readonly unwrap: (giftWrap: NostrEvent) => Effect.Effect<Rumor, CryptoError>;
 }
 
-export function createGiftWrapHandle(privateKey: Uint8Array, publicKey: string): GiftWrapHandle {
+export function createGiftWrapHandle(
+  senderPrivateKey: Uint8Array,
+  recipientPublicKey: string,
+  decryptionPrivateKey: Uint8Array,
+): GiftWrapHandle {
   return {
     wrap: (rumor) =>
       Effect.try({
-        try: () => wrapEvent(rumor, privateKey, publicKey),
+        try: () => wrapEvent(rumor, senderPrivateKey, recipientPublicKey),
         catch: (e) =>
           new CryptoError({
             message: `Gift wrap failed: ${e instanceof Error ? e.message : String(e)}`,
@@ -22,7 +26,7 @@ export function createGiftWrapHandle(privateKey: Uint8Array, publicKey: string):
 
     unwrap: (giftWrap) =>
       Effect.try({
-        try: () => unwrapEvent(giftWrap, privateKey),
+        try: () => unwrapEvent(giftWrap, decryptionPrivateKey),
         catch: (e) =>
           new CryptoError({
             message: `Gift unwrap failed: ${e instanceof Error ? e.message : String(e)}`,

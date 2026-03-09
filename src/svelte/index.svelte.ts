@@ -15,6 +15,10 @@ export type { InferRecord, SchemaConfig } from "../schema/types.ts";
 export type { TablinumConfig } from "../db/create-tablinum.ts";
 export type { SyncStatus } from "../db/database-handle.ts";
 
+// Invite
+export { encodeInvite, decodeInvite } from "../db/invite.ts";
+export type { Invite } from "../db/invite.ts";
+
 // Re-export errors
 export {
   ValidationError,

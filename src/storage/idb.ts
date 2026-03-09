@@ -10,6 +10,7 @@ export interface StoredEvent {
   readonly kind: "create" | "update" | "delete";
   readonly data: Record<string, unknown> | null;
   readonly createdAt: number;
+  readonly author?: string | undefined;
 }
 
 export interface StoredGiftWrap {

@@ -2,6 +2,7 @@ import { Effect, Scope, Exit } from "effect";
 import type { SchemaConfig } from "../schema/types.ts";
 import type { CollectionDef, CollectionFields } from "../schema/collection.ts";
 import type { DatabaseHandle, SyncStatus } from "../db/database-handle.ts";
+import type { Invite } from "../db/invite.ts";
 import { Collection } from "./collection.svelte.ts";
 
 export class Database<S extends SchemaConfig> {
@@ -43,6 +44,10 @@ export class Database<S extends SchemaConfig> {
 
   exportKey(): string {
     return this.#handle.exportKey();
+  }
+
+  exportInvite(): Invite {
+    return this.#handle.exportInvite();
   }
 
   close = async (): Promise<void> => {

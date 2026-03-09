@@ -27,6 +27,7 @@ export function createSyncHandle(
   relayUrls: readonly string[],
   publicKey: string,
   onSyncError?: ((error: unknown) => void) | undefined,
+  onNewAuthor?: ((pubkey: string) => void) | undefined,
 ): SyncHandle {
   // Process a single remote gift wrap: store, unwrap, apply event
   const processGiftWrap = (
@@ -74,6 +75,8 @@ export function createSyncHandle(
         return null;
       }
 
+      const author: string | undefined = rumor.pubkey || undefined;
+
       const event: StoredEvent = {
         id: rumor.id,
         collection: collectionName,
@@ -81,10 +84,16 @@ export function createSyncHandle(
         kind,
         data,
         createdAt: rumor.created_at * 1000,
+        author,
       };
 
       yield* storage.putEvent(event);
       yield* applyEvent(storage, event);
+
+      if (author && onNewAuthor) {
+        onNewAuthor(author);
+      }
+
       return collectionName;
     });
 
@@ -146,7 +155,6 @@ export function createSyncHandle(
         );
         if (result._tag === "Failure") {
           yield* publishQueue.enqueue(giftWrap.id);
-          console.error("[tablinum:publishLocal] relay error:", result.failure);
           if (onSyncError) onSyncError(result.failure);
         }
       }),
@@ -172,10 +180,7 @@ export function createSyncHandle(
             }),
           );
           if (subResult._tag === "Failure") {
-            console.error("[tablinum:subscribe] failed for", url, subResult.failure);
             if (onSyncError) onSyncError(subResult.failure);
-          } else {
-            console.log("[tablinum:subscribe] listening on", url);
           }
         }
       }),
