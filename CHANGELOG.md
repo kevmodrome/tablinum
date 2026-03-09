@@ -1,5 +1,11 @@
 # tablinum
 
+## 0.1.1
+
+### Patch Changes
+
+- eebd8ea: Fixes erroneous svelte export
+
 ## 0.1.0
 
 ### Minor Changes
