@@ -1,8 +1,8 @@
-import { Effect, Stream } from "effect";
+import { Effect, Option, Stream } from "effect";
 import type { CollectionDef, CollectionFields } from "../schema/collection.ts";
 import type { InferRecord } from "../schema/types.ts";
 import type { CollectionHandle } from "../crud/collection-handle.ts";
-import { LiveQuery } from "./live-query.svelte.ts";
+import { ClosedError } from "../errors.ts";
 import {
   wrapWhereClause,
   wrapOrderByBuilder,
@@ -11,19 +11,50 @@ import {
 } from "./query.svelte.ts";
 
 export class Collection<C extends CollectionDef<CollectionFields>> {
-  items = $state<ReadonlyArray<InferRecord<C>>>([]);
   error = $state<Error | null>(null);
 
-  #handle: CollectionHandle<C>;
+  #handle: CollectionHandle<C> | null = null;
+  #ready!: Promise<void>;
+  #resolveReady!: () => void;
+  #rejectReady!: (err: Error) => void;
+  #readySettled = false;
+  #version = $state(0);
   #watchAbort: AbortController | null = null;
-  #liveQueries: Set<LiveQuery<unknown>> = new Set();
 
-  constructor(handle: CollectionHandle<C>) {
+  constructor() {
+    this.#ready = new Promise<void>((resolve, reject) => {
+      this.#resolveReady = resolve;
+      this.#rejectReady = reject;
+    });
+  }
+
+  /** @internal Called by Tablinum after the core handle is available. */
+  _bind(handle: CollectionHandle<C>): void {
+    if (this.#handle) return;
     this.#handle = handle;
+    this.error = null;
+    this.#settleReady();
     this.#startWatch();
   }
 
+  /** @internal Called by Tablinum if initialization fails before binding. */
+  _fail(err: Error): void {
+    this.error = err;
+    this.#settleReady(err);
+  }
+
+  #settleReady(err?: Error): void {
+    if (this.#readySettled) return;
+    this.#readySettled = true;
+    if (err) {
+      this.#rejectReady(err);
+    } else {
+      this.#resolveReady();
+    }
+  }
+
   #startWatch() {
+    if (!this.#handle) return;
     const abort = new AbortController();
     this.#watchAbort = abort;
 
@@ -31,66 +62,95 @@ export class Collection<C extends CollectionDef<CollectionFields>> {
       Stream.runForEach(this.#handle.watch(), (records) =>
         Effect.sync(() => {
           if (!abort.signal.aborted) {
-            console.log("[Collection] watch emitted", records.length, "records");
-            console.log(records);
-            this.items = records;
+            this.#version++;
           }
         }),
       ),
     ).catch((e) => {
-      console.error("[Collection] watch error", e);
       if (!abort.signal.aborted) {
         this.error = e instanceof Error ? e : new Error(String(e));
       }
     });
   }
 
-  #run = async <R>(effect: Effect.Effect<R, unknown>): Promise<R> => {
-    try {
-      this.error = null;
-      return await Effect.runPromise(effect);
-    } catch (e) {
-      this.error = e instanceof Error ? e : new Error(String(e));
-      throw this.error;
+  #touchVersion = (): void => {
+    // Reading $state synchronously so $derived tracks this dependency
+    void this.#version;
+  };
+
+  #handleOrThrow = (): CollectionHandle<C> => {
+    if (this.#handle) return this.#handle;
+    throw this.error ?? new ClosedError({ message: "Collection is not ready" });
+  };
+
+  #run = async <R>(getEffect: () => Effect.Effect<R, unknown>): Promise<R> => {
+    await this.#ready;
+    return Effect.runPromise(getEffect());
+  };
+
+  add = (data: Omit<InferRecord<C>, "id">): Promise<string> => {
+    return this.#run(() => this.#handleOrThrow().add(data));
+  };
+
+  update = (id: string, data: Partial<Omit<InferRecord<C>, "id">>): Promise<void> => {
+    return this.#run(() => this.#handleOrThrow().update(id, data));
+  };
+
+  delete = (id: string): Promise<void> => {
+    return this.#run(() => this.#handleOrThrow().delete(id));
+  };
+
+  get(): Promise<ReadonlyArray<InferRecord<C>>>;
+  get(id: string): Promise<InferRecord<C>>;
+  get(id?: string): Promise<ReadonlyArray<InferRecord<C>> | InferRecord<C>> {
+    if (typeof id === "string") {
+      return this.#run(() => this.#handleOrThrow().get(id));
     }
+    // No-arg: return all records. Touch version for $derived reactivity.
+    this.#touchVersion();
+    return this.#run(() =>
+      Stream.runHead(this.#handleOrThrow().watch()).pipe(
+        Effect.map((opt) => Option.getOrElse(opt, () => [] as ReadonlyArray<InferRecord<C>>)),
+      ),
+    );
+  }
+
+  first = (): Promise<InferRecord<C> | null> => {
+    this.#touchVersion();
+    return this.#run(() => this.#handleOrThrow().first());
   };
 
-  #onLive = (lq: LiveQuery<unknown>): void => {
-    this.#liveQueries.add(lq);
+  count = (): Promise<number> => {
+    this.#touchVersion();
+    return this.#run(() => this.#handleOrThrow().count());
   };
-
-  add = (data: Omit<InferRecord<C>, "id">): Promise<string> => this.#run(this.#handle.add(data));
-
-  update = (id: string, data: Partial<Omit<InferRecord<C>, "id">>): Promise<void> =>
-    this.#run(this.#handle.update(id, data));
-
-  delete = (id: string): Promise<void> => this.#run(this.#handle.delete(id));
-
-  get = (id: string): Promise<InferRecord<C>> => this.#run(this.#handle.get(id));
-
-  first = (): Promise<InferRecord<C> | null> => this.#run(this.#handle.first());
-
-  count = (): Promise<number> => this.#run(this.#handle.count());
 
   where = (field: string & keyof Omit<InferRecord<C>, "id">): SvelteWhereClause<InferRecord<C>> => {
-    return wrapWhereClause(this.#handle.where(field), this.#onLive);
+    return wrapWhereClause(
+      () => this.#handleOrThrow().where(field),
+      this.#touchVersion,
+      this.#ready,
+    );
   };
 
   orderBy = (
     field: string & keyof Omit<InferRecord<C>, "id">,
   ): SvelteOrderByBuilder<InferRecord<C>> => {
-    return wrapOrderByBuilder(this.#handle.orderBy(field), this.#onLive);
+    return wrapOrderByBuilder(
+      () => this.#handleOrThrow().orderBy(field),
+      this.#touchVersion,
+      this.#ready,
+    );
   };
 
-  /** @internal Called by Database.close() */
-  _destroy(): void {
+  /** @internal Called by Tablinum.close() */
+  _destroy(reason: Error = new ClosedError({ message: "Collection is closed" })): void {
     if (this.#watchAbort) {
       this.#watchAbort.abort();
       this.#watchAbort = null;
     }
-    for (const lq of this.#liveQueries) {
-      lq.destroy();
-    }
-    this.#liveQueries.clear();
+    this.#handle = null;
+    this.error ??= reason;
+    this.#settleReady(this.error);
   }
 }

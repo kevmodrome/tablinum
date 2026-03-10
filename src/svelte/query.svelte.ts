@@ -1,8 +1,5 @@
 import { Effect } from "effect";
 import type { WhereClause, QueryBuilder, OrderByBuilder } from "../crud/query-builder.ts";
-import { LiveQuery } from "./live-query.svelte.ts";
-
-export type OnLiveCallback = (lq: LiveQuery<unknown>) => void;
 
 export interface SvelteQueryBuilder<T> {
   readonly and: (fn: (item: T) => boolean) => SvelteQueryBuilder<T>;
@@ -13,7 +10,6 @@ export interface SvelteQueryBuilder<T> {
   readonly get: () => Promise<ReadonlyArray<T>>;
   readonly first: () => Promise<T | null>;
   readonly count: () => Promise<number>;
-  readonly live: () => LiveQuery<T>;
 }
 
 export interface SvelteWhereClause<T> {
@@ -39,63 +35,81 @@ export interface SvelteOrderByBuilder<T> {
   readonly get: () => Promise<ReadonlyArray<T>>;
   readonly first: () => Promise<T | null>;
   readonly count: () => Promise<number>;
-  readonly live: () => LiveQuery<T>;
 }
 
+type TouchVersion = () => void;
+type QueryFactory<T> = () => QueryBuilder<T>;
+type WhereFactory<T> = () => WhereClause<T>;
+type OrderByFactory<T> = () => OrderByBuilder<T>;
+
 function wrapQueryBuilder<T>(
-  builder: QueryBuilder<T>,
-  onLive?: OnLiveCallback,
+  getBuilder: QueryFactory<T>,
+  touchVersion: TouchVersion,
+  ready: Promise<void>,
 ): SvelteQueryBuilder<T> {
   return {
-    and: (fn) => wrapQueryBuilder(builder.and(fn), onLive),
-    sortBy: (field) => wrapQueryBuilder(builder.sortBy(field), onLive),
-    reverse: () => wrapQueryBuilder(builder.reverse(), onLive),
-    offset: (n) => wrapQueryBuilder(builder.offset(n), onLive),
-    limit: (n) => wrapQueryBuilder(builder.limit(n), onLive),
-    get: () => Effect.runPromise(builder.get()),
-    first: () => Effect.runPromise(builder.first()),
-    count: () => Effect.runPromise(builder.count()),
-    live: () => {
-      const lq = new LiveQuery(builder.watch());
-      onLive?.(lq as LiveQuery<unknown>);
-      return lq;
+    and: (fn) => wrapQueryBuilder(() => getBuilder().and(fn), touchVersion, ready),
+    sortBy: (field) => wrapQueryBuilder(() => getBuilder().sortBy(field), touchVersion, ready),
+    reverse: () => wrapQueryBuilder(() => getBuilder().reverse(), touchVersion, ready),
+    offset: (n) => wrapQueryBuilder(() => getBuilder().offset(n), touchVersion, ready),
+    limit: (n) => wrapQueryBuilder(() => getBuilder().limit(n), touchVersion, ready),
+    get: () => {
+      touchVersion();
+      return ready.then(() => Effect.runPromise(getBuilder().get()));
+    },
+    first: () => {
+      touchVersion();
+      return ready.then(() => Effect.runPromise(getBuilder().first()));
+    },
+    count: () => {
+      touchVersion();
+      return ready.then(() => Effect.runPromise(getBuilder().count()));
     },
   };
 }
 
 export function wrapWhereClause<T>(
-  clause: WhereClause<T>,
-  onLive?: OnLiveCallback,
+  getClause: WhereFactory<T>,
+  touchVersion: TouchVersion,
+  ready: Promise<void>,
 ): SvelteWhereClause<T> {
   return {
-    equals: (value) => wrapQueryBuilder(clause.equals(value), onLive),
-    above: (value) => wrapQueryBuilder(clause.above(value), onLive),
-    aboveOrEqual: (value) => wrapQueryBuilder(clause.aboveOrEqual(value), onLive),
-    below: (value) => wrapQueryBuilder(clause.below(value), onLive),
-    belowOrEqual: (value) => wrapQueryBuilder(clause.belowOrEqual(value), onLive),
+    equals: (value) => wrapQueryBuilder(() => getClause().equals(value), touchVersion, ready),
+    above: (value) => wrapQueryBuilder(() => getClause().above(value), touchVersion, ready),
+    aboveOrEqual: (value) =>
+      wrapQueryBuilder(() => getClause().aboveOrEqual(value), touchVersion, ready),
+    below: (value) => wrapQueryBuilder(() => getClause().below(value), touchVersion, ready),
+    belowOrEqual: (value) =>
+      wrapQueryBuilder(() => getClause().belowOrEqual(value), touchVersion, ready),
     between: (lower, upper, options) =>
-      wrapQueryBuilder(clause.between(lower, upper, options), onLive),
-    startsWith: (prefix) => wrapQueryBuilder(clause.startsWith(prefix), onLive),
-    anyOf: (values) => wrapQueryBuilder(clause.anyOf(values), onLive),
-    noneOf: (values) => wrapQueryBuilder(clause.noneOf(values), onLive),
+      wrapQueryBuilder(() => getClause().between(lower, upper, options), touchVersion, ready),
+    startsWith: (prefix) =>
+      wrapQueryBuilder(() => getClause().startsWith(prefix), touchVersion, ready),
+    anyOf: (values) => wrapQueryBuilder(() => getClause().anyOf(values), touchVersion, ready),
+    noneOf: (values) => wrapQueryBuilder(() => getClause().noneOf(values), touchVersion, ready),
   };
 }
 
 export function wrapOrderByBuilder<T>(
-  builder: OrderByBuilder<T>,
-  onLive?: OnLiveCallback,
+  getBuilder: OrderByFactory<T>,
+  touchVersion: TouchVersion,
+  ready: Promise<void>,
 ): SvelteOrderByBuilder<T> {
   return {
-    reverse: () => wrapOrderByBuilder(builder.reverse(), onLive),
-    offset: (n) => wrapOrderByBuilder(builder.offset(n), onLive),
-    limit: (n) => wrapOrderByBuilder(builder.limit(n), onLive),
-    get: () => Effect.runPromise(builder.get()),
-    first: () => Effect.runPromise(builder.first()),
-    count: () => Effect.runPromise(builder.count()),
-    live: () => {
-      const lq = new LiveQuery(builder.watch());
-      onLive?.(lq as LiveQuery<unknown>);
-      return lq;
+    reverse: () => wrapOrderByBuilder(() => getBuilder().reverse(), touchVersion, ready),
+    offset: (n) => wrapOrderByBuilder(() => getBuilder().offset(n), touchVersion, ready),
+    limit: (n) => wrapOrderByBuilder(() => getBuilder().limit(n), touchVersion, ready),
+    get: () => {
+      touchVersion();
+      return ready.then(() => Effect.runPromise(getBuilder().get()));
+    },
+    first: () => {
+      touchVersion();
+      return ready.then(() => Effect.runPromise(getBuilder().first()));
+    },
+    count: () => {
+      touchVersion();
+      return ready.then(() => Effect.runPromise(getBuilder().count()));
     },
   };
 }

@@ -1,4 +1,5 @@
-import { createTablinum, field, collection, decodeInvite, type InferRecord } from "tablinum/svelte";
+import { Tablinum, field, collection, decodeInvite, type InferRecord } from "tablinum/svelte";
+import { dbUiState, type RemovedInfo } from "./db-state.svelte";
 
 const todosCollection = collection(
   "todos",
@@ -27,12 +28,15 @@ function getInviteFromUrl(): ReturnType<typeof decodeInvite> | undefined {
   }
 }
 
-export async function initDb(opts?: {
-  onRemoved?: (info: { epochId: string; removedBy: string }) => void;
-}) {
-  const invite = getInviteFromUrl();
+let _db: Tablinum<AppSchema> | null = null;
 
-  const db = await createTablinum({
+export function initDb(opts?: { onRemoved?: (info: RemovedInfo) => void }) {
+  if (_db && _db.status !== "closed" && _db.status !== "error") return _db;
+
+  const invite = getInviteFromUrl();
+  dbUiState.reset(!!invite);
+
+  _db = new Tablinum({
     schema,
     relays: invite?.relays ?? ["wss://relay.nostr.place"],
     dbName: invite?.dbName ?? "tablinum-svelte-demo",
@@ -40,8 +44,16 @@ export async function initDb(opts?: {
     onSyncError: (err) => {
       console.error("[tablinum:sync]", err.message);
     },
-    onRemoved: opts?.onRemoved,
+    onRemoved: (info) => {
+      dbUiState.markRemoved(info);
+      opts?.onRemoved?.(info);
+    },
   });
 
-  return { db, joined: !!invite };
+  return _db;
+}
+
+export function getDb(): Tablinum<AppSchema> {
+  if (!_db) throw new Error("Database not initialized — did hooks.client.ts run?");
+  return _db;
 }
