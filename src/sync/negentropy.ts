@@ -23,7 +23,7 @@ export function reconcileWithRelay(
   storage: IDBStorageHandle,
   relay: RelayHandle,
   relayUrl: string,
-  publicKey: string,
+  publicKeys: string | string[],
 ): Effect.Effect<ReconcileResult, SyncError | RelayError | StorageError> {
   return Effect.gen(function* () {
     const allGiftWraps = yield* storage.getAllGiftWraps();
@@ -38,7 +38,7 @@ export function reconcileWithRelay(
 
     const filter: Filter = {
       kinds: [1059],
-      "#p": [publicKey],
+      "#p": Array.isArray(publicKeys) ? publicKeys : [publicKeys],
     };
 
     const allHaveIds: string[] = [];

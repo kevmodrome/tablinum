@@ -15,14 +15,6 @@ export type TodoRecord = InferRecord<typeof todosCollection>;
 const schema = { todos: todosCollection };
 export type AppSchema = typeof schema;
 
-function hexToBytes(hex: string): Uint8Array {
-  const bytes = new Uint8Array(32);
-  for (let i = 0; i < 32; i++) {
-    bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  }
-  return bytes;
-}
-
 function getInviteFromUrl(): ReturnType<typeof decodeInvite> | undefined {
   const params = new URLSearchParams(window.location.search);
   const invite = params.get("invite");
@@ -35,17 +27,20 @@ function getInviteFromUrl(): ReturnType<typeof decodeInvite> | undefined {
   }
 }
 
-export async function initDb() {
+export async function initDb(opts?: {
+  onRemoved?: (info: { epochId: string; removedBy: string }) => void;
+}) {
   const invite = getInviteFromUrl();
 
   const db = await createTablinum({
     schema,
     relays: invite?.relays ?? ["wss://relay.nostr.place"],
     dbName: invite?.dbName ?? "tablinum-svelte-demo",
-    groupPrivateKey: invite ? hexToBytes(invite.groupKey) : undefined,
+    epochKeys: invite?.epochKeys,
     onSyncError: (err) => {
       console.error("[tablinum:sync]", err.message);
     },
+    onRemoved: opts?.onRemoved,
   });
 
   return { db, joined: !!invite };

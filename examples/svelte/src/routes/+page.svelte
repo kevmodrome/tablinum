@@ -16,16 +16,33 @@
 	let joined = $state(false);
 	let inviteCopied = $state(false);
 	let linkCopied = $state(false);
+	let removed = $state(false);
+
+	// Members
+	let myPubkey = $state("");
+	let showMembers = $state(false);
+	let members = $derived.by(() => {
+	console.log('deriving...', db?.getMembers())
+	  return db?.members?.items
+	});
 
 	async function init() {
 		try {
-			const result = await initDb();
+			const result = await initDb({
+				onRemoved: () => {
+					removed = true;
+				},
+			});
 			db = result.db;
 			joined = result.joined;
 			todos = db.collection("todos");
 			incomplete = todos.where("done").equals(false).live();
 			done = todos.where("done").equals(true).live();
+			myPubkey = db.publicKey;
 			loading = false;
+
+			// Debug: check if members are in IDB directly
+			db.getMembers().then((m: any) => console.log("[DEBUG] getMembers():", m.length, m));
 		} catch (e: unknown) {
 			initError = e instanceof Error ? e.message : String(e);
 			loading = false;
@@ -61,6 +78,11 @@
 		await db.rebuild();
 	}
 
+	async function removeMember(pubkey: string) {
+		if (!db) return;
+		await db.removeMember(pubkey);
+	}
+
 	function copyInviteCode() {
 		if (!db) return;
 		const invite = db.exportInvite();
@@ -94,6 +116,10 @@
 		window.location.search = `?invite=${encodeURIComponent(code)}`;
 	}
 
+	function shortKey(pubkey: string): string {
+		return pubkey.slice(0, 8) + "..." + pubkey.slice(-4);
+	}
+
 	onDestroy(() => {
 		incomplete?.destroy();
 		done?.destroy();
@@ -113,6 +139,12 @@
 	{:else if initError}
 		<p class="error">Failed to initialize: {initError}</p>
 	{:else if todos && db}
+		{#if removed}
+			<div class="removed-banner">
+				<p>You have been removed from this group. You can still view existing data, but new changes will not sync.</p>
+			</div>
+		{/if}
+
 		<div class="invite-section">
 			<h3>Collaboration</h3>
 			{#if joined}
@@ -125,6 +157,9 @@
 				<button onclick={copyInviteLink}
 					>{linkCopied ? "Copied!" : "Copy Invite Link"}</button
 				>
+				<button onclick={() => (showMembers = !showMembers)}
+					>{showMembers ? "Hide Members" : `Members (${members.length})`}</button
+				>
 			</div>
 			<div class="invite-import">
 				<input
@@ -133,6 +168,40 @@
 				/>
 				<button onclick={joinWithInvite}>Join</button>
 			</div>
+
+			{#if showMembers && members.length > 0}
+				<div class="members-list">
+					<h4>Group Members</h4>
+					<ul>
+						{#each members as member (member.id)}
+							<li class:removed={!!member.removedAt}>
+								<span class="member-info">
+									{#if member.name}
+										<strong>{member.name}</strong>
+										<span class="member-key">({shortKey(String(member.id))})</span>
+									{:else}
+										<span class="member-key">{shortKey(String(member.id))}</span>
+									{/if}
+									{#if String(member.id) === myPubkey}
+										<span class="you-badge">you</span>
+									{/if}
+									{#if member.removedAt}
+										<span class="removed-badge">removed</span>
+									{/if}
+								</span>
+								{#if !member.removedAt && String(member.id) !== myPubkey}
+									<button
+										class="remove-btn"
+										onclick={() => removeMember(String(member.id))}
+									>
+										Remove
+									</button>
+								{/if}
+							</li>
+						{/each}
+					</ul>
+				</div>
+			{/if}
 		</div>
 
 		{#if db.status === "syncing"}
@@ -163,7 +232,7 @@
 						<span>{todo.title}</span>
 					</label>
 					<button class="delete" onclick={() => remove(todo.id)}
-						>✕</button
+						>&#x2715;</button
 					>
 				</li>
 			{/each}
@@ -182,7 +251,7 @@
 						<span>{todo.title}</span>
 					</label>
 					<button class="delete" onclick={() => remove(todo.id)}
-						>✕</button
+						>&#x2715;</button
 					>
 				</li>
 			{/each}
@@ -222,6 +291,12 @@
 	h3 {
 		font-size: 0.95rem;
 		margin-bottom: 0.5rem;
+	}
+
+	h4 {
+		font-size: 0.85rem;
+		color: #666;
+		margin-bottom: 0.25rem;
 	}
 
 	form {
@@ -350,5 +425,77 @@
 		font-size: 0.8rem;
 		color: #06c;
 		margin-bottom: 0.5rem;
+	}
+
+	.members-list {
+		margin-top: 0.75rem;
+		padding-top: 0.5rem;
+		border-top: 1px solid #ddd;
+	}
+
+	.members-list ul {
+		margin-top: 0.25rem;
+	}
+
+	.members-list li {
+		padding: 0.375rem 0;
+		font-size: 0.85rem;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.members-list li.removed {
+		opacity: 0.5;
+	}
+
+	.member-info {
+		display: flex;
+		align-items: center;
+		gap: 0.375rem;
+	}
+
+	.member-key {
+		font-family: monospace;
+		font-size: 0.75rem;
+		color: #888;
+	}
+
+	.you-badge {
+		font-size: 0.7rem;
+		background: #06c;
+		color: white;
+		padding: 0.1rem 0.35rem;
+		border-radius: 3px;
+	}
+
+	.removed-badge {
+		font-size: 0.7rem;
+		background: #c00;
+		color: white;
+		padding: 0.1rem 0.35rem;
+		border-radius: 3px;
+	}
+
+	.remove-btn {
+		font-size: 0.75rem;
+		padding: 0.2rem 0.5rem;
+		color: #c00;
+		border-color: #c00;
+		background: white;
+	}
+
+	.remove-btn:hover {
+		background: #fee;
+	}
+
+	.removed-banner {
+		background: #fff3cd;
+		border: 1px solid #ffc107;
+		border-radius: 4px;
+		padding: 0.75rem;
+		margin-bottom: 1rem;
+		color: #856404;
+		font-size: 0.9rem;
 	}
 </style>

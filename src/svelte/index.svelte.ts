@@ -19,6 +19,10 @@ export type { SyncStatus } from "../db/database-handle.ts";
 export { encodeInvite, decodeInvite } from "../db/invite.ts";
 export type { Invite } from "../db/invite.ts";
 
+// Epochs & Members
+export type { EpochKey } from "../db/epoch.ts";
+export type { MemberRecord } from "../db/members.ts";
+
 // Re-export errors
 export {
   ValidationError,

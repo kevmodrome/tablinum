@@ -3,6 +3,7 @@ import type { SchemaConfig } from "../schema/types.ts";
 import type { CollectionDef, CollectionFields } from "../schema/collection.ts";
 import type { DatabaseHandle, SyncStatus } from "../db/database-handle.ts";
 import type { Invite } from "../db/invite.ts";
+import type { MemberRecord } from "../db/members.ts";
 import { Collection } from "./collection.svelte.ts";
 
 export class Database<S extends SchemaConfig> {
@@ -30,6 +31,19 @@ export class Database<S extends SchemaConfig> {
           /* database may be closed, ignore */
         });
     }, 1000);
+  }
+
+  get publicKey(): string {
+    return this.#handle.publicKey;
+  }
+
+  get members(): Collection<CollectionDef<CollectionFields>> {
+    let col = this.#collections.get("_members");
+    if (!col) {
+      col = new Collection(this.#handle.members);
+      this.#collections.set("_members", col);
+    }
+    return col;
   }
 
   collection<K extends string & keyof S>(name: K): Collection<S[K]> {
@@ -80,6 +94,51 @@ export class Database<S extends SchemaConfig> {
     try {
       this.error = null;
       await Effect.runPromise(this.#handle.rebuild());
+    } catch (e) {
+      this.error = e instanceof Error ? e : new Error(String(e));
+      throw this.error;
+    }
+  };
+
+  addMember = async (pubkey: string): Promise<void> => {
+    try {
+      this.error = null;
+      await Effect.runPromise(this.#handle.addMember(pubkey));
+    } catch (e) {
+      this.error = e instanceof Error ? e : new Error(String(e));
+      throw this.error;
+    }
+  };
+
+  removeMember = async (pubkey: string): Promise<void> => {
+    try {
+      this.error = null;
+      await Effect.runPromise(this.#handle.removeMember(pubkey));
+    } catch (e) {
+      this.error = e instanceof Error ? e : new Error(String(e));
+      throw this.error;
+    }
+  };
+
+  getMembers = async (): Promise<ReadonlyArray<MemberRecord>> => {
+    try {
+      this.error = null;
+      return await Effect.runPromise(this.#handle.getMembers());
+    } catch (e) {
+      this.error = e instanceof Error ? e : new Error(String(e));
+      throw this.error;
+    }
+  };
+
+  setProfile = async (profile: {
+    name?: string;
+    picture?: string;
+    about?: string;
+    nip05?: string;
+  }): Promise<void> => {
+    try {
+      this.error = null;
+      await Effect.runPromise(this.#handle.setProfile(profile));
     } catch (e) {
       this.error = e instanceof Error ? e : new Error(String(e));
       throw this.error;

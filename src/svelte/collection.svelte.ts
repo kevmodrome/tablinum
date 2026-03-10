@@ -1,4 +1,4 @@
-import { Effect, Fiber, Stream } from "effect";
+import { Effect, Stream } from "effect";
 import type { CollectionDef, CollectionFields } from "../schema/collection.ts";
 import type { InferRecord } from "../schema/types.ts";
 import type { CollectionHandle } from "../crud/collection-handle.ts";
@@ -15,25 +15,34 @@ export class Collection<C extends CollectionDef<CollectionFields>> {
   error = $state<Error | null>(null);
 
   #handle: CollectionHandle<C>;
-  #watchFiber: Fiber.Fiber<void, unknown> | null = null;
+  #watchAbort: AbortController | null = null;
   #liveQueries: Set<LiveQuery<unknown>> = new Set();
 
   constructor(handle: CollectionHandle<C>) {
     this.#handle = handle;
+    this.#startWatch();
+  }
 
-    // Auto-watch: subscribe to all records, surface errors to this.error
-    const watchEffect = Stream.runForEach(handle.watch(), (records) =>
-      Effect.sync(() => {
-        this.items = records;
-      }),
-    ).pipe(
-      Effect.catch((e) =>
+  #startWatch() {
+    const abort = new AbortController();
+    this.#watchAbort = abort;
+
+    Effect.runPromise(
+      Stream.runForEach(this.#handle.watch(), (records) =>
         Effect.sync(() => {
-          this.error = e instanceof Error ? e : new Error(String(e));
+          if (!abort.signal.aborted) {
+            console.log("[Collection] watch emitted", records.length, "records");
+            console.log(records);
+            this.items = records;
+          }
         }),
       ),
-    );
-    this.#watchFiber = Effect.runFork(watchEffect);
+    ).catch((e) => {
+      console.error("[Collection] watch error", e);
+      if (!abort.signal.aborted) {
+        this.error = e instanceof Error ? e : new Error(String(e));
+      }
+    });
   }
 
   #run = async <R>(effect: Effect.Effect<R, unknown>): Promise<R> => {
@@ -75,9 +84,9 @@ export class Collection<C extends CollectionDef<CollectionFields>> {
 
   /** @internal Called by Database.close() */
   _destroy(): void {
-    if (this.#watchFiber) {
-      Effect.runFork(Fiber.interrupt(this.#watchFiber));
-      this.#watchFiber = null;
+    if (this.#watchAbort) {
+      this.#watchAbort.abort();
+      this.#watchAbort = null;
     }
     for (const lq of this.#liveQueries) {
       lq.destroy();

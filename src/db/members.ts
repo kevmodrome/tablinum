@@ -10,14 +10,51 @@ const optionalString = {
   isArray: false,
 };
 
-export const authorsCollectionDef: CollectionDef = {
+const optionalNumber = {
+  _tag: "FieldDef" as const,
+  kind: "number" as const,
+  isOptional: true,
+  isArray: false,
+};
+
+const requiredNumber = {
+  _tag: "FieldDef" as const,
+  kind: "number" as const,
+  isOptional: false,
+  isArray: false,
+};
+
+const requiredString = {
+  _tag: "FieldDef" as const,
+  kind: "string" as const,
+  isOptional: false,
+  isArray: false,
+};
+
+export interface MemberRecord {
+  readonly id: string;
+  readonly name?: string;
+  readonly picture?: string;
+  readonly about?: string;
+  readonly nip05?: string;
+  readonly addedAt: number;
+  readonly addedInEpoch: string;
+  readonly removedAt?: number;
+  readonly removedInEpoch?: string;
+}
+
+export const membersCollectionDef: CollectionDef = {
   _tag: "CollectionDef",
-  name: "_authors",
+  name: "_members",
   fields: {
     name: optionalString,
     picture: optionalString,
     about: optionalString,
     nip05: optionalString,
+    addedAt: requiredNumber,
+    addedInEpoch: requiredString,
+    removedAt: optionalNumber,
+    removedInEpoch: optionalString,
   },
   indices: [],
 };

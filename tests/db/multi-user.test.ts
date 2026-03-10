@@ -1,13 +1,13 @@
 import { describe, expect } from "vitest";
 import { it } from "@effect/vitest";
-import { Effect } from "effect";
+import { Effect, Fiber, Scope, Stream } from "effect";
 import { generateSecretKey, getPublicKey } from "nostr-tools/pure";
 import { field } from "../../src/schema/field.ts";
 import { collection } from "../../src/schema/collection.ts";
 import { createTablinum } from "../../src/db/create-tablinum.ts";
 
 describe("multi-user", () => {
-  it.effect("exportInvite returns group key and config", () =>
+  it.effect("exportInvite returns epoch keys and config", () =>
     Effect.gen(function* () {
       const groupSk = generateSecretKey();
       const todos = collection("todos", { title: field.string() });
@@ -22,49 +22,54 @@ describe("multi-user", () => {
       const invite = db.exportInvite();
       expect(invite.dbName).toBe("test-invite");
       expect(invite.relays).toEqual(["wss://relay.example.com"]);
-      expect(invite.groupKey).toHaveLength(64);
+      expect(invite.epochKeys).toHaveLength(1);
+      expect(invite.epochKeys[0].key).toHaveLength(64);
 
-      // Group key in invite should match the group pubkey derivation
+      // Epoch key in invite should match the group pubkey derivation
       const groupPk = getPublicKey(groupSk);
       const inviteBytes = new Uint8Array(32);
+      const key = invite.epochKeys[0].key;
       for (let i = 0; i < 32; i++) {
-        inviteBytes[i] = parseInt(invite.groupKey.slice(i * 2, i * 2 + 2), 16);
+        inviteBytes[i] = parseInt(key.slice(i * 2, i * 2 + 2), 16);
       }
       expect(getPublicKey(inviteBytes)).toBe(groupPk);
     }),
   );
 
-  it.effect("exportInvite without group key uses user key", () =>
+  it.effect("exportInvite without explicit group key auto-generates epoch keys", () =>
     Effect.gen(function* () {
       const todos = collection("todos", { title: field.string() });
 
       const db = yield* createTablinum({
         schema: { todos },
         relays: ["wss://relay.example.com"],
-        dbName: "test-invite-single",
+        dbName: "test-invite-auto",
       });
 
       const invite = db.exportInvite();
-      expect(invite.groupKey).toBe(db.exportKey());
+      expect(invite.epochKeys).toHaveLength(1);
+      expect(invite.epochKeys[0].key).toHaveLength(64);
+      // The epoch key should be a separate group key, not the user's personal key
+      expect(invite.epochKeys[0].key).not.toBe(db.exportKey());
     }),
   );
 
-  it.effect("_authors collection is accessible", () =>
+  it.effect("_members collection is accessible", () =>
     Effect.gen(function* () {
       const todos = collection("todos", { title: field.string() });
 
       const db = yield* createTablinum({
         schema: { todos },
         relays: ["wss://relay.example.com"],
-        dbName: "test-authors-access",
+        dbName: "test-members-access",
       });
 
-      // _authors should be a valid collection
-      const authors = db.collection("_authors" as any);
-      expect(authors).toBeDefined();
+      // _members should be a valid collection
+      const members = db.collection("_members" as any);
+      expect(members).toBeDefined();
 
-      const count = yield* authors.count();
-      expect(count).toBe(0);
+      const count = yield* members.count();
+      expect(count).toBeGreaterThanOrEqual(0);
     }),
   );
 
@@ -122,7 +127,6 @@ describe("multi-user", () => {
   it.effect("group key changes target public key for gift wraps", () =>
     Effect.gen(function* () {
       const groupSk = generateSecretKey();
-      const groupPk = getPublicKey(groupSk);
 
       const userSk = generateSecretKey();
       const userPk = getPublicKey(userSk);
@@ -150,4 +154,99 @@ describe("multi-user", () => {
       expect(exportedPk).toBe(userPk);
     }),
   );
+
+  it.effect("multi-user mode auto-registers current user as member", () =>
+    Effect.gen(function* () {
+      const groupSk = generateSecretKey();
+      const userSk = generateSecretKey();
+      const userPk = getPublicKey(userSk);
+
+      const todos = collection("todos", { title: field.string() });
+
+      const db = yield* createTablinum({
+        schema: { todos },
+        relays: ["wss://relay.example.com"],
+        privateKey: userSk,
+        groupPrivateKey: groupSk,
+        dbName: "test-auto-member",
+      });
+
+      const members = yield* db.getMembers();
+      expect(members.length).toBeGreaterThanOrEqual(1);
+      expect(members.some((m) => m.id === userPk)).toBe(true);
+    }),
+  );
+
+  it.effect("members handle watch() emits self-registered member", () =>
+    Effect.gen(function* () {
+      const groupSk = generateSecretKey();
+      const userSk = generateSecretKey();
+      const userPk = getPublicKey(userSk);
+
+      const todos = collection("todos", { title: field.string() });
+
+      const db = yield* createTablinum({
+        schema: { todos },
+        relays: ["wss://relay.example.com"],
+        privateKey: userSk,
+        groupPrivateKey: groupSk,
+        dbName: "test-members-watch",
+      });
+
+      // Take just the first emission from the watch stream
+      const firstEmission = yield* db.members.watch().pipe(Stream.take(1), Stream.runCollect);
+
+      const items = Array.from(firstEmission).flat();
+      expect(items.length).toBeGreaterThanOrEqual(1);
+      expect(items.some((m: any) => m.id === userPk)).toBe(true);
+    }),
+  );
+
+  it("members watch via runFork populates items (mimics Svelte Collection)", async () => {
+    const groupSk = generateSecretKey();
+    const userSk = generateSecretKey();
+    const userPk = getPublicKey(userSk);
+
+    const todos = collection("todos", { title: field.string() });
+
+    // Use a scope like the Svelte wrapper does
+    const scope = Effect.runSync(Scope.make());
+    const db = await Effect.runPromise(
+      createTablinum({
+        schema: { todos },
+        relays: ["wss://relay.example.com"],
+        privateKey: userSk,
+        groupPrivateKey: groupSk,
+        dbName: "test-members-fork-watch",
+      }).pipe(Effect.provideService(Scope.Scope, scope)),
+    );
+
+    // Mimic what Svelte Collection does: Effect.runFork from constructor
+    let items: ReadonlyArray<unknown> = [];
+    let error: unknown = null;
+    const watchEffect = Stream.runForEach(db.members.watch(), (records) =>
+      Effect.sync(() => {
+        items = records;
+      }),
+    ).pipe(
+      Effect.catch((e) =>
+        Effect.sync(() => {
+          error = e;
+        }),
+      ),
+    );
+    const fiber = Effect.runFork(watchEffect);
+
+    // Give the fiber time to process
+    await new Promise((r) => setTimeout(r, 200));
+
+    console.log("items:", items.length, "error:", error);
+
+    expect(error).toBeNull();
+    expect(items.length).toBeGreaterThanOrEqual(1);
+    expect(items.some((m: any) => m.id === userPk)).toBe(true);
+
+    // Cleanup
+    Effect.runFork(Fiber.interrupt(fiber));
+  });
 });

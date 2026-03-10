@@ -1,29 +1,33 @@
-import { Effect, Fiber, Stream } from "effect";
+import { Effect, Stream } from "effect";
 
 export class LiveQuery<T> {
   items = $state<ReadonlyArray<T>>([]);
   error = $state<Error | null>(null);
-  #fiber: Fiber.Fiber<void, unknown> | null = null;
+  #abort: AbortController | null = null;
 
   constructor(stream: Stream.Stream<ReadonlyArray<T>, unknown>) {
-    const effect = Stream.runForEach(stream, (records) =>
-      Effect.sync(() => {
-        this.items = records;
-      }),
-    ).pipe(
-      Effect.catch((e) =>
+    const abort = new AbortController();
+    this.#abort = abort;
+
+    Effect.runPromise(
+      Stream.runForEach(stream, (records) =>
         Effect.sync(() => {
-          this.error = e instanceof Error ? e : new Error(String(e));
+          if (!abort.signal.aborted) {
+            this.items = records;
+          }
         }),
       ),
-    );
-    this.#fiber = Effect.runFork(effect);
+    ).catch((e) => {
+      if (!abort.signal.aborted) {
+        this.error = e instanceof Error ? e : new Error(String(e));
+      }
+    });
   }
 
   destroy(): void {
-    if (this.#fiber) {
-      Effect.runFork(Fiber.interrupt(this.#fiber));
-      this.#fiber = null;
+    if (this.#abort) {
+      this.#abort.abort();
+      this.#abort = null;
     }
   }
 }
