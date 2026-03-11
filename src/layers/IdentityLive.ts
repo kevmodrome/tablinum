@@ -5,39 +5,19 @@ import { Config } from "../services/Config.ts";
 import { Storage } from "../services/Storage.ts";
 import { createIdentity } from "../db/identity.ts";
 
-function readStoredHex(key: string): string | undefined {
-  if (typeof globalThis.localStorage === "undefined") return undefined;
-  return globalThis.localStorage.getItem(key) ?? undefined;
-}
-
-function writeStoredValue(key: string, value: string): void {
-  if (typeof globalThis.localStorage === "undefined") return;
-  globalThis.localStorage.setItem(key, value);
-}
-
-function resolveStoredKey(key: string): Uint8Array | undefined {
-  const saved = readStoredHex(key);
-  return saved && saved.length === 64 ? hexToBytes(saved) : undefined;
-}
-
 export const IdentityLive = Layer.effect(
   Identity,
   Effect.gen(function* () {
     const config = yield* Config;
     const storage = yield* Storage;
-    const storageKeyName = `tablinum-key-${config.dbName}`;
 
     const idbKey = yield* storage.getMeta("identity_key");
     const resolvedKey =
       config.privateKey ??
-      (typeof idbKey === "string" && idbKey.length === 64 ? hexToBytes(idbKey) : undefined) ??
-      resolveStoredKey(storageKeyName);
+      (typeof idbKey === "string" && idbKey.length === 64 ? hexToBytes(idbKey) : undefined);
 
     const identity = yield* createIdentity(resolvedKey);
-    const exportedKey = identity.exportKey();
-
-    yield* storage.putMeta("identity_key", exportedKey);
-    writeStoredValue(storageKeyName, exportedKey);
+    yield* storage.putMeta("identity_key", identity.exportKey());
 
     return identity;
   }),

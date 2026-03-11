@@ -12,7 +12,6 @@ export { encodeInvite, decodeInvite } from "./db/invite.ts";
 export type { Invite } from "./db/invite.ts";
 
 export { EpochId, DatabaseName } from "./brands.ts";
-export type { EpochId as EpochIdType, DatabaseName as DatabaseNameType } from "./brands.ts";
 
 export type { EpochKey, EpochKeyInput } from "./db/epoch.ts";
 export type { MemberRecord } from "./db/members.ts";

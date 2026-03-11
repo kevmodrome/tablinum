@@ -1,7 +1,3 @@
-import type { SchemaConfig } from "../schema/types.ts";
-import type { TablinumConfig } from "../db/create-tablinum.ts";
-import { Tablinum } from "./tablinum.svelte.ts";
-
 export { field } from "../schema/field.ts";
 export { collection } from "../schema/collection.ts";
 export type { CollectionDef, CollectionFields } from "../schema/collection.ts";
@@ -33,12 +29,3 @@ export type {
   SvelteWhereClause,
   SvelteOrderByBuilder,
 } from "./query.svelte.ts";
-
-/** @deprecated Use `new Tablinum(config)` instead. */
-export async function createTablinum<S extends SchemaConfig>(
-  config: TablinumConfig<S>,
-): Promise<Tablinum<S>> {
-  const db = new Tablinum(config);
-  await db.ready;
-  return db;
-}

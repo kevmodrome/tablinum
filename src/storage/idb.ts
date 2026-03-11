@@ -111,10 +111,6 @@ function upgradeSchema(database: IDBPDatabase, schema: SchemaConfig, tx: IDBTran
     database.createObjectStore("giftwraps", { keyPath: "id" });
   }
 
-  if (database.objectStoreNames.contains("records")) {
-    database.deleteObjectStore("records");
-  }
-
   const expectedStores = new Set<string>();
   for (const [, def] of Object.entries(schema)) {
     const sn = storeName(def.name);
