@@ -27,6 +27,10 @@ export type { CollectionHandle } from "./crud/collection-handle.ts";
 export type { CollectionOptions } from "./schema/collection.ts";
 export type { WhereClause, QueryBuilder, OrderByBuilder } from "./crud/query-builder.ts";
 
+// Services & Layers (individual services importable from "tablinum/services")
+export { TablinumLive } from "./layers/TablinumLive.ts";
+export type { TablinumConfigShape } from "./services/Config.ts";
+
 // Errors
 export {
   ValidationError,
