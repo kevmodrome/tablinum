@@ -23,7 +23,7 @@ export class Tablinum<S extends SchemaConfig> {
   #scope: Scope.Closeable | null = null;
   #collections = new Map<string, Collection<CollectionDef<CollectionFields>>>();
   #members = new Collection<CollectionDef<CollectionFields>>();
-  #statusInterval: ReturnType<typeof setInterval> | null = null;
+  #unsubscribeSyncStatus: (() => void) | null = null;
   #closed = false;
   #readyState = createDeferred<void>();
 
@@ -76,22 +76,10 @@ export class Tablinum<S extends SchemaConfig> {
       this.#scope = scope;
       this.#bindCollections(handle);
 
-      // Poll sync status
-      this.#statusInterval = setInterval(() => {
-        if (this.#closed || !this.#handle) return;
-        Effect.runPromise(this.#handle.getSyncStatus())
-          .then((s) => {
-            this.syncStatus = s;
-          })
-          .catch(() => {
-            // getSyncStatus has no typed errors; failures here indicate
-            // the database was closed or a defect — stop polling silently.
-            if (this.#statusInterval) {
-              clearInterval(this.#statusInterval);
-              this.#statusInterval = null;
-            }
-          });
-      }, 1000);
+      // Subscribe to sync status changes (reactive push instead of polling)
+      this.#unsubscribeSyncStatus = handle.subscribeSyncStatus((s) => {
+        this.syncStatus = s;
+      });
 
       this.status = "ready";
       this.#settleReady();
@@ -155,9 +143,9 @@ export class Tablinum<S extends SchemaConfig> {
         : "Tablinum was closed before initialization completed",
     });
 
-    if (this.#statusInterval) {
-      clearInterval(this.#statusInterval);
-      this.#statusInterval = null;
+    if (this.#unsubscribeSyncStatus) {
+      this.#unsubscribeSyncStatus();
+      this.#unsubscribeSyncStatus = null;
     }
     this.#members._destroy(closeError);
     for (const col of this.#collections.values()) col._destroy(closeError);

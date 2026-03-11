@@ -11,6 +11,7 @@ function buildRecord(event: StoredEvent): Record<string, unknown> {
     id: event.recordId,
     _deleted: event.kind === "delete",
     _updatedAt: event.createdAt,
+    _eventId: event.id,
     _author: event.author,
     ...(event.data ?? {}),
   };
@@ -18,6 +19,8 @@ function buildRecord(event: StoredEvent): Record<string, unknown> {
 
 /**
  * Apply an event to the records store using LWW resolution.
+ * Compares the incoming event directly against the materialized record (O(1))
+ * instead of reading all events for the record.
  * Returns true if the incoming event won and the record was updated.
  */
 export function applyEvent(
@@ -25,23 +28,20 @@ export function applyEvent(
   event: StoredEvent,
 ): Effect.Effect<boolean, StorageError> {
   return Effect.gen(function* () {
-    const existingEvents = yield* storage.getEventsByRecord(event.collection, event.recordId);
+    const existing = yield* storage.getRecord(event.collection, event.recordId);
 
-    // Find the current winning event for this record
-    let currentWinner: StoredEvent | null = null;
-    for (const e of existingEvents) {
-      if (e.id === event.id) continue; // Skip the event we're applying
-      currentWinner = resolveWinner(currentWinner, e);
+    if (existing) {
+      const existingMeta = {
+        id: existing._eventId as string,
+        createdAt: existing._updatedAt as number,
+      };
+      const incomingMeta = { id: event.id, createdAt: event.createdAt };
+      const winner = resolveWinner(existingMeta, incomingMeta);
+      if (winner.id !== event.id) return false;
     }
 
-    const winner = resolveWinner(currentWinner, event);
-    const incomingWon = winner.id === event.id;
-
-    if (incomingWon) {
-      yield* storage.putRecord(event.collection, buildRecord(event));
-    }
-
-    return incomingWon;
+    yield* storage.putRecord(event.collection, buildRecord(event));
+    return true;
   });
 }
 

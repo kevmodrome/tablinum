@@ -326,6 +326,7 @@ export const TablinumLive = Layer.effect(
 
       sync: () => ensureSyncOpen(syncHandle.sync()),
       getSyncStatus: () => syncStatus.get(),
+      subscribeSyncStatus: (callback) => syncStatus.subscribe(callback),
 
       addMember: (pubkey) =>
         ensureOpen(

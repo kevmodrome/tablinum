@@ -24,6 +24,7 @@ export interface DatabaseHandle<S extends SchemaConfig> {
   readonly rebuild: () => Effect.Effect<void, StorageError>;
   readonly sync: () => Effect.Effect<void, SyncError | RelayError | CryptoError | StorageError>;
   readonly getSyncStatus: () => Effect.Effect<SyncStatus>;
+  readonly subscribeSyncStatus: (callback: (status: SyncStatus) => void) => () => void;
   readonly addMember: (
     pubkey: string,
   ) => Effect.Effect<void, ValidationError | StorageError | CryptoError>;
