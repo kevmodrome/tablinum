@@ -7,7 +7,7 @@ import type { RelayHandle } from "../../src/sync/relay.ts";
 
 function makeRelayHandle(responses: Record<string, string | null | Error>): RelayHandle {
   return {
-    fetchByFilter: (_filter, url) => {
+    fetchByFilter: (_filter: unknown, url: string) => {
       const response = responses[url];
       if (response instanceof Error) {
         return Effect.fail(
@@ -23,7 +23,7 @@ function makeRelayHandle(responses: Record<string, string | null | Error>): Rela
       }
       return Effect.succeed([{ content: response } as NostrEvent]);
     },
-  } as RelayHandle;
+  } as unknown as RelayHandle;
 }
 
 describe("members", () => {

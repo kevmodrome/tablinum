@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
 import { ValidationError } from "../errors.ts";
-import { EpochKeyInputSchema, type EpochKeyInput } from "./epoch.ts";
+import { EpochId, EpochKeyInputSchema, type EpochKeyInput, DatabaseName } from "./epoch.ts";
 
 export interface RuntimeConfigSource {
   readonly relays: readonly string[];
@@ -13,7 +13,7 @@ export interface ResolvedRuntimeConfig {
   readonly relays: readonly string[];
   readonly privateKey?: Uint8Array | undefined;
   readonly epochKeys?: ReadonlyArray<EpochKeyInput> | undefined;
-  readonly dbName: string;
+  readonly dbName: DatabaseName;
 }
 
 const PrivateKeySchema = Schema.Uint8Array.check(Schema.isMinLength(32), Schema.isMaxLength(32));
@@ -30,9 +30,10 @@ export function resolveRuntimeConfig(
 ): Effect.Effect<ResolvedRuntimeConfig, ValidationError> {
   return Schema.decodeUnknownEffect(RuntimeConfigSchema)(source).pipe(
     Effect.map((config) => ({
-      ...config,
       relays: [...config.relays],
-      dbName: config.dbName ?? "tablinum",
+      privateKey: config.privateKey,
+      epochKeys: config.epochKeys?.map((ek) => ({ epochId: EpochId(ek.epochId), key: ek.key })),
+      dbName: DatabaseName(config.dbName ?? "tablinum"),
     })),
     Effect.mapError(
       (error) =>

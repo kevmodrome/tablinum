@@ -16,6 +16,7 @@ import {
   persistEpochs,
   loadPersistedEpochs,
 } from "../../src/db/epoch.ts";
+import { EpochId, DatabaseName } from "../../src/brands.ts";
 
 function withLocalStorage(test: (storage: Storage) => void): void {
   const original = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
@@ -58,7 +59,7 @@ describe("epoch", () => {
 
   it("creates an epoch key with correct public key derivation", () => {
     const keyHex = makeKeyHex();
-    const epoch = createEpochKey("e1", keyHex, Date.now(), "creator");
+    const epoch = createEpochKey(EpochId("e1"), keyHex, Date.now(), "creator");
     expect(epoch.id).toBe("e1");
     expect(epoch.privateKey).toBe(keyHex);
     expect(epoch.publicKey).toBe(getPublicKey(hexToBytes(keyHex)));
@@ -67,7 +68,7 @@ describe("epoch", () => {
 
   it("creates an epoch store with initial epoch", () => {
     const keyHex = makeKeyHex();
-    const epoch = createEpochKey("e0", keyHex, Date.now(), "creator");
+    const epoch = createEpochKey(EpochId("e0"), keyHex, Date.now(), "creator");
     const store = createEpochStore(epoch);
     expect(store.currentEpochId).toBe("e0");
     expect(store.epochs.size).toBe(1);
@@ -77,11 +78,11 @@ describe("epoch", () => {
   it("adds epochs and tracks them", () => {
     const k1 = makeKeyHex();
     const k2 = makeKeyHex();
-    const e1 = createEpochKey("e1", k1, 1000, "c1");
-    const e2 = createEpochKey("e2", k2, 2000, "c2", "e1");
+    const e1 = createEpochKey(EpochId("e1"), k1, 1000, "c1");
+    const e2 = createEpochKey(EpochId("e2"), k2, 2000, "c2", EpochId("e1"));
     const store = createEpochStore(e1);
     addEpoch(store, e2);
-    store.currentEpochId = "e2";
+    store.currentEpochId = EpochId("e2");
 
     expect(store.epochs.size).toBe(2);
     expect(getCurrentEpoch(store).id).toBe("e2");
@@ -90,7 +91,7 @@ describe("epoch", () => {
 
   it("looks up decryption key by public key", () => {
     const keyHex = makeKeyHex();
-    const epoch = createEpochKey("e0", keyHex, Date.now(), "c");
+    const epoch = createEpochKey(EpochId("e0"), keyHex, Date.now(), "c");
     const store = createEpochStore(epoch);
 
     const decKey = getDecryptionKey(store, epoch.publicKey);
@@ -103,14 +104,14 @@ describe("epoch", () => {
   it("getCurrentPublicKey returns the current epoch's public key", () => {
     const k1 = makeKeyHex();
     const k2 = makeKeyHex();
-    const e1 = createEpochKey("e1", k1, 1000, "c");
-    const e2 = createEpochKey("e2", k2, 2000, "c", "e1");
+    const e1 = createEpochKey(EpochId("e1"), k1, 1000, "c");
+    const e2 = createEpochKey(EpochId("e2"), k2, 2000, "c", EpochId("e1"));
     const store = createEpochStore(e1);
 
     expect(getCurrentPublicKey(store)).toBe(e1.publicKey);
 
     addEpoch(store, e2);
-    store.currentEpochId = "e2";
+    store.currentEpochId = EpochId("e2");
     expect(getCurrentPublicKey(store)).toBe(e2.publicKey);
   });
 
@@ -118,9 +119,9 @@ describe("epoch", () => {
     const k1 = makeKeyHex();
     const k2 = makeKeyHex();
     const k3 = makeKeyHex();
-    const e1 = createEpochKey("e1", k1, 1000, "c");
-    const e2 = createEpochKey("e2", k2, 2000, "c", "e1");
-    const e3 = createEpochKey("e3", k3, 3000, "c", "e2");
+    const e1 = createEpochKey(EpochId("e1"), k1, 1000, "c");
+    const e2 = createEpochKey(EpochId("e2"), k2, 2000, "c", EpochId("e1"));
+    const e3 = createEpochKey(EpochId("e3"), k3, 3000, "c", EpochId("e2"));
 
     expect(e1.parentEpoch).toBeUndefined();
     expect(e2.parentEpoch).toBe("e1");
@@ -129,9 +130,9 @@ describe("epoch", () => {
 
   it("builds an epoch store from ordered input keys", () => {
     const epochKeys = [
-      { epochId: "e1", key: makeKeyHex() },
-      { epochId: "e2", key: makeKeyHex() },
-      { epochId: "e3", key: makeKeyHex() },
+      { epochId: EpochId("e1"), key: makeKeyHex() },
+      { epochId: EpochId("e2"), key: makeKeyHex() },
+      { epochId: EpochId("e3"), key: makeKeyHex() },
     ] as const;
 
     const store = createEpochStoreFromInputs(epochKeys, {
@@ -139,8 +140,8 @@ describe("epoch", () => {
     });
 
     expect(store.currentEpochId).toBe("e3");
-    expect(store.epochs.get("e2")!.parentEpoch).toBe("e1");
-    expect(store.epochs.get("e3")!.parentEpoch).toBe("e2");
+    expect(store.epochs.get(EpochId("e2"))!.parentEpoch).toBe("e1");
+    expect(store.epochs.get(EpochId("e3"))!.parentEpoch).toBe("e2");
     expect(exportEpochKeys(store)).toEqual(epochKeys);
   });
 
@@ -148,20 +149,20 @@ describe("epoch", () => {
     withLocalStorage(() => {
       const k1 = makeKeyHex();
       const k2 = makeKeyHex();
-      const e1 = createEpochKey("e1", k1, 1000, "c1");
-      const e2 = createEpochKey("e2", k2, 2000, "c2", "e1");
+      const e1 = createEpochKey(EpochId("e1"), k1, 1000, "c1");
+      const e2 = createEpochKey(EpochId("e2"), k2, 2000, "c2", EpochId("e1"));
       const store = createEpochStore(e1);
       addEpoch(store, e2);
-      store.currentEpochId = "e2";
+      store.currentEpochId = EpochId("e2");
 
-      persistEpochs(store, "todos");
-      const persisted = loadPersistedEpochs("todos");
+      persistEpochs(store, DatabaseName("todos"));
+      const persisted = loadPersistedEpochs(DatabaseName("todos"));
 
       expect(Option.isSome(persisted)).toBe(true);
       const value = Option.getOrThrow(persisted);
       expect(value.currentEpochId).toBe("e2");
       expect(Array.from(value.epochs.keys())).toEqual(["e1", "e2"]);
-      expect(value.epochs.get("e2")!.parentEpoch).toBe("e1");
+      expect(value.epochs.get(EpochId("e2"))!.parentEpoch).toBe("e1");
     });
   });
 
@@ -175,7 +176,7 @@ describe("epoch", () => {
         }),
       );
 
-      expect(Option.isNone(loadPersistedEpochs("todos"))).toBe(true);
+      expect(Option.isNone(loadPersistedEpochs(DatabaseName("todos")))).toBe(true);
     });
   });
 });

@@ -1,10 +1,11 @@
 import { Schema } from "effect";
-import { EpochKeyInputSchema, type EpochKeyInput } from "./epoch.ts";
+import { EpochKeyInputSchema, DatabaseName, type EpochKeyInput } from "./epoch.ts";
+import { EpochId } from "../brands.ts";
 
 export interface Invite {
   readonly epochKeys: Array<EpochKeyInput>;
   readonly relays: string[];
-  readonly dbName: string;
+  readonly dbName: DatabaseName;
 }
 
 const InviteSchema = Schema.Struct({
@@ -32,11 +33,11 @@ export function decodeInvite(encoded: string): Invite {
     const invite = decodeInvitePayload(raw);
     return {
       epochKeys: invite.epochKeys.map((epoch) => ({
-        epochId: epoch.epochId,
+        epochId: EpochId(epoch.epochId),
         key: epoch.key,
       })),
       relays: [...invite.relays],
-      dbName: invite.dbName,
+      dbName: DatabaseName(invite.dbName),
     };
   } catch {
     throw new Error("Invalid invite: unexpected shape");

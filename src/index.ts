@@ -14,6 +14,10 @@ export type { DatabaseHandle, SyncStatus } from "./db/database-handle.ts";
 export { encodeInvite, decodeInvite } from "./db/invite.ts";
 export type { Invite } from "./db/invite.ts";
 
+// Brands
+export { EpochId, DatabaseName } from "./brands.ts";
+export type { EpochId as EpochIdType, DatabaseName as DatabaseNameType } from "./brands.ts";
+
 // Epochs & Members
 export type { EpochKey, EpochKeyInput } from "./db/epoch.ts";
 export type { MemberRecord } from "./db/members.ts";

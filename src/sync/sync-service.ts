@@ -13,7 +13,14 @@ import type { WatchContext } from "../crud/watch.ts";
 import { notifyChange, notifyReplayComplete } from "../crud/watch.ts";
 import { CryptoError, RelayError, StorageError, SyncError } from "../errors.ts";
 import type { EpochStore } from "../db/epoch.ts";
-import { getAllPublicKeys, addEpoch, persistEpochs, createEpochKey } from "../db/epoch.ts";
+import {
+  EpochId,
+  type DatabaseName,
+  getAllPublicKeys,
+  addEpoch,
+  persistEpochs,
+  createEpochKey,
+} from "../db/epoch.ts";
 import { parseRotationEvent, parseRemovalNotice } from "../db/key-rotation.ts";
 import type { RemovalNotice } from "../db/key-rotation.ts";
 
@@ -35,7 +42,7 @@ export function createSyncHandle(
   epochStore: EpochStore,
   personalPrivateKey: Uint8Array,
   personalPublicKey: string,
-  dbName: string,
+  dbName: DatabaseName,
   scope: Scope.Scope,
   onSyncError?: ((error: unknown) => void) | undefined,
   onNewAuthor?: ((pubkey: string) => void) | undefined,

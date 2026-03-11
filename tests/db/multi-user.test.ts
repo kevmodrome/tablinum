@@ -6,6 +6,7 @@ import { field } from "../../src/schema/field.ts";
 import { collection } from "../../src/schema/collection.ts";
 import { createTablinum } from "../../src/db/create-tablinum.ts";
 import { bytesToHex } from "../../src/db/epoch.ts";
+import { EpochId } from "../../src/brands.ts";
 
 describe("multi-user", () => {
   it.effect("exportInvite returns epoch keys and config", () =>
@@ -16,7 +17,7 @@ describe("multi-user", () => {
       const db = yield* createTablinum({
         schema: { todos },
         relays: ["wss://relay.example.com"],
-        epochKeys: [{ epochId: "epoch-0", key: bytesToHex(initialEpochKey) }],
+        epochKeys: [{ epochId: EpochId("epoch-0"), key: bytesToHex(initialEpochKey) }],
         dbName: "test-invite",
       });
 
@@ -138,7 +139,7 @@ describe("multi-user", () => {
         schema: { todos },
         relays: ["wss://relay.example.com"],
         privateKey: userSk,
-        epochKeys: [{ epochId: "epoch-0", key: bytesToHex(initialEpochKey) }],
+        epochKeys: [{ epochId: EpochId("epoch-0"), key: bytesToHex(initialEpochKey) }],
         dbName: "test-group-target",
       });
 
@@ -168,7 +169,7 @@ describe("multi-user", () => {
         schema: { todos },
         relays: ["wss://relay.example.com"],
         privateKey: userSk,
-        epochKeys: [{ epochId: "epoch-0", key: bytesToHex(initialEpochKey) }],
+        epochKeys: [{ epochId: EpochId("epoch-0"), key: bytesToHex(initialEpochKey) }],
         dbName: "test-auto-member",
       });
 
@@ -190,7 +191,7 @@ describe("multi-user", () => {
         schema: { todos },
         relays: ["wss://relay.example.com"],
         privateKey: userSk,
-        epochKeys: [{ epochId: "epoch-0", key: bytesToHex(initialEpochKey) }],
+        epochKeys: [{ epochId: EpochId("epoch-0"), key: bytesToHex(initialEpochKey) }],
         dbName: "test-members-watch",
       });
 
@@ -217,7 +218,7 @@ describe("multi-user", () => {
         schema: { todos },
         relays: ["wss://relay.example.com"],
         privateKey: userSk,
-        epochKeys: [{ epochId: "epoch-0", key: bytesToHex(initialEpochKey) }],
+        epochKeys: [{ epochId: EpochId("epoch-0"), key: bytesToHex(initialEpochKey) }],
         dbName: "test-members-fork-watch",
       }).pipe(Effect.provideService(Scope.Scope, scope)),
     );

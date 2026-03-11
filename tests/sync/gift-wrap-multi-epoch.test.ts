@@ -4,13 +4,14 @@ import { Effect } from "effect";
 import { generateSecretKey, getPublicKey } from "nostr-tools/pure";
 import { createEpochGiftWrapHandle } from "../../src/sync/gift-wrap.ts";
 import { createEpochKey, createEpochStore, addEpoch, bytesToHex } from "../../src/db/epoch.ts";
+import { EpochId } from "../../src/brands.ts";
 
 describe("gift wrap multi-epoch", () => {
   it.effect("wraps with current epoch and unwraps by #p tag lookup", () =>
     Effect.gen(function* () {
       const userSk = generateSecretKey();
       const groupKeyHex = bytesToHex(generateSecretKey());
-      const epoch0 = createEpochKey("e0", groupKeyHex, Date.now(), getPublicKey(userSk));
+      const epoch0 = createEpochKey(EpochId("e0"), groupKeyHex, Date.now(), getPublicKey(userSk));
       const store = createEpochStore(epoch0);
 
       const handle = createEpochGiftWrapHandle(userSk, store);
@@ -39,8 +40,14 @@ describe("gift wrap multi-epoch", () => {
       const k0Hex = bytesToHex(generateSecretKey());
       const k1Hex = bytesToHex(generateSecretKey());
 
-      const epoch0 = createEpochKey("e0", k0Hex, 1000, getPublicKey(userSk));
-      const epoch1 = createEpochKey("e1", k1Hex, 2000, getPublicKey(userSk), "e0");
+      const epoch0 = createEpochKey(EpochId("e0"), k0Hex, 1000, getPublicKey(userSk));
+      const epoch1 = createEpochKey(
+        EpochId("e1"),
+        k1Hex,
+        2000,
+        getPublicKey(userSk),
+        EpochId("e0"),
+      );
 
       const store = createEpochStore(epoch0);
       const handle = createEpochGiftWrapHandle(userSk, store);
@@ -55,7 +62,7 @@ describe("gift wrap multi-epoch", () => {
 
       // Rotate: add epoch 1
       addEpoch(store, epoch1);
-      store.currentEpochId = "e1";
+      store.currentEpochId = EpochId("e1");
 
       // Write with epoch 1 (same handle, store mutated)
       const gwNew = yield* handle.wrap({
@@ -88,8 +95,8 @@ describe("gift wrap multi-epoch", () => {
       const k0Hex = bytesToHex(generateSecretKey());
       const k1Hex = bytesToHex(generateSecretKey());
 
-      const epoch0 = createEpochKey("e0", k0Hex, 1000, getPublicKey(userSk));
-      const epoch1 = createEpochKey("e1", k1Hex, 2000, getPublicKey(userSk));
+      const epoch0 = createEpochKey(EpochId("e0"), k0Hex, 1000, getPublicKey(userSk));
+      const epoch1 = createEpochKey(EpochId("e1"), k1Hex, 2000, getPublicKey(userSk));
 
       // Store with only epoch 1 (missing epoch 0)
       const store = createEpochStore(epoch1);
@@ -114,7 +121,7 @@ describe("gift wrap multi-epoch", () => {
   it.effect("two users with same epoch store can read each other", () =>
     Effect.gen(function* () {
       const groupKeyHex = bytesToHex(generateSecretKey());
-      const epoch0 = createEpochKey("e0", groupKeyHex, Date.now(), "creator");
+      const epoch0 = createEpochKey(EpochId("e0"), groupKeyHex, Date.now(), "creator");
 
       // User A
       const userASk = generateSecretKey();

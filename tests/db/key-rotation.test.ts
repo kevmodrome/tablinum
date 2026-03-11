@@ -7,11 +7,12 @@ import {
   parseRemovalNotice,
 } from "../../src/db/key-rotation.ts";
 import { createEpochKey, createEpochStore, bytesToHex } from "../../src/db/epoch.ts";
+import { EpochId } from "../../src/brands.ts";
 
 describe("key rotation", () => {
   it("creates a rotation with new epoch and wrapped events", () => {
     const epochKey = bytesToHex(generateSecretKey());
-    const epoch0 = createEpochKey("epoch-0", epochKey, Date.now(), "creator");
+    const epoch0 = createEpochKey(EpochId("epoch-0"), epochKey, Date.now(), "creator");
     const store = createEpochStore(epoch0);
 
     const senderSk = generateSecretKey();
@@ -33,7 +34,7 @@ describe("key rotation", () => {
 
   it("creates no wrapped events when sender is the only remaining member", () => {
     const epochKey = bytesToHex(generateSecretKey());
-    const epoch0 = createEpochKey("epoch-0", epochKey, Date.now(), "creator");
+    const epoch0 = createEpochKey(EpochId("epoch-0"), epochKey, Date.now(), "creator");
     const store = createEpochStore(epoch0);
 
     const senderSk = generateSecretKey();
@@ -49,7 +50,7 @@ describe("key rotation", () => {
 
   it("new epoch has a unique key different from parent", () => {
     const epochKey = bytesToHex(generateSecretKey());
-    const epoch0 = createEpochKey("epoch-0", epochKey, Date.now(), "creator");
+    const epoch0 = createEpochKey(EpochId("epoch-0"), epochKey, Date.now(), "creator");
     const store = createEpochStore(epoch0);
 
     const senderSk = generateSecretKey();

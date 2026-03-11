@@ -3,7 +3,7 @@ import { generateSecretKey } from "nostr-tools/pure";
 import { wrapEvent } from "nostr-tools/nip59";
 import type { NostrEvent } from "nostr-tools/pure";
 import type { EpochKey, EpochStore } from "./epoch.ts";
-import { createEpochKey, getCurrentEpoch, bytesToHex } from "./epoch.ts";
+import { EpochId, createEpochKey, getCurrentEpoch, bytesToHex } from "./epoch.ts";
 import { uuidv7 } from "../utils/uuid.ts";
 
 export interface RotationResult {
@@ -14,15 +14,15 @@ export interface RotationResult {
 
 export interface RotationData {
   readonly _rotation: true;
-  readonly epochId: string;
+  readonly epochId: EpochId;
   readonly epochKey: string;
-  readonly parentEpoch: string;
+  readonly parentEpoch: EpochId;
   readonly removedMembers: readonly string[];
 }
 
 export interface RemovalNotice {
   readonly _removed: true;
-  readonly epochId: string;
+  readonly epochId: EpochId;
   readonly removedBy: string;
 }
 
@@ -55,7 +55,7 @@ export function createRotation(
   const newSk = generateSecretKey();
   const newKeyHex = bytesToHex(newSk);
   const currentEpoch = getCurrentEpoch(epochStore);
-  const epochId = uuidv7();
+  const epochId = EpochId(uuidv7());
   const now = Date.now();
 
   const epoch = createEpochKey(epochId, newKeyHex, now, senderPublicKey, currentEpoch.id);
@@ -107,7 +107,7 @@ export function createRotation(
 export function parseRotationEvent(content: string, dTag: string): Option.Option<RotationData> {
   if (!dTag.startsWith("_system:rotation:")) return Option.none();
   try {
-    return Option.some(decodeRotationData(content));
+    return Option.some(decodeRotationData(content) as unknown as RotationData);
   } catch {
     return Option.none();
   }
@@ -116,7 +116,7 @@ export function parseRotationEvent(content: string, dTag: string): Option.Option
 export function parseRemovalNotice(content: string, dTag: string): Option.Option<RemovalNotice> {
   if (!dTag.startsWith("_system:removed:")) return Option.none();
   try {
-    return Option.some(decodeRemovalNotice(content));
+    return Option.some(decodeRemovalNotice(content) as unknown as RemovalNotice);
   } catch {
     return Option.none();
   }

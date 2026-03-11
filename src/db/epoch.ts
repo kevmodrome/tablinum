@@ -1,24 +1,26 @@
 import { Option, Schema } from "effect";
 import { getPublicKey } from "nostr-tools/pure";
+import { EpochId, DatabaseName } from "../brands.ts";
+export { EpochId, DatabaseName };
 
 export interface EpochKeyInput {
-  readonly epochId: string;
+  readonly epochId: EpochId;
   readonly key: string;
 }
 
 export interface EpochKey {
-  readonly id: string;
+  readonly id: EpochId;
   readonly privateKey: string;
   readonly publicKey: string;
   readonly createdAt: number;
   readonly createdBy: string;
-  readonly parentEpoch?: string;
+  readonly parentEpoch?: EpochId;
 }
 
 export interface EpochStore {
-  readonly epochs: Map<string, EpochKey>;
+  readonly epochs: Map<EpochId, EpochKey>;
   readonly keysByPublicKey: Map<string, Uint8Array>;
-  currentEpochId: string;
+  currentEpochId: EpochId;
 }
 
 const HexKeySchema = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/i));
@@ -69,11 +71,11 @@ export function bytesToHex(bytes: Uint8Array): string {
 }
 
 export function createEpochKey(
-  id: string,
+  id: EpochId,
   privateKeyHex: string,
   createdAt: number,
   createdBy: string,
-  parentEpoch?: string,
+  parentEpoch?: EpochId,
 ): EpochKey {
   const publicKey = getPublicKey(hexToBytes(privateKeyHex));
   const base = { id, privateKey: privateKeyHex, publicKey, createdAt, createdBy };
@@ -81,7 +83,7 @@ export function createEpochKey(
 }
 
 export function createEpochStore(initialEpoch: EpochKey): EpochStore {
-  const epochs = new Map<string, EpochKey>();
+  const epochs = new Map<EpochId, EpochKey>();
   const keysByPublicKey = new Map<string, Uint8Array>();
   epochs.set(initialEpoch.id, initialEpoch);
   keysByPublicKey.set(initialEpoch.publicKey, hexToBytes(initialEpoch.privateKey));
@@ -95,7 +97,13 @@ export function addEpoch(store: EpochStore, epoch: EpochKey): void {
 
 export function hydrateEpochStore(snapshot: EpochStoreSnapshot): EpochStore {
   const [firstEpoch, ...remainingEpochs] = snapshot.epochs.map((epoch) =>
-    createEpochKey(epoch.id, epoch.privateKey, epoch.createdAt, epoch.createdBy, epoch.parentEpoch),
+    createEpochKey(
+      EpochId(epoch.id),
+      epoch.privateKey,
+      epoch.createdAt,
+      epoch.createdBy,
+      epoch.parentEpoch !== undefined ? EpochId(epoch.parentEpoch) : undefined,
+    ),
   );
   if (!firstEpoch) {
     throw new Error("Epoch snapshot must contain at least one epoch");
@@ -105,7 +113,7 @@ export function hydrateEpochStore(snapshot: EpochStoreSnapshot): EpochStore {
   for (const epoch of remainingEpochs) {
     addEpoch(store, epoch);
   }
-  store.currentEpochId = snapshot.currentEpochId;
+  store.currentEpochId = EpochId(snapshot.currentEpochId);
   return store;
 }
 
@@ -132,10 +140,12 @@ export function createEpochStoreFromInputs(
     ),
   );
 
-  return hydrateEpochStore({
-    epochs,
-    currentEpochId: epochs[epochs.length - 1]!.id,
-  });
+  const store = createEpochStore(epochs[0]!);
+  for (let i = 1; i < epochs.length; i++) {
+    addEpoch(store, epochs[i]!);
+  }
+  store.currentEpochId = epochs[epochs.length - 1]!.id;
+  return store;
 }
 
 export function getCurrentEpoch(store: EpochStore): EpochKey {
@@ -173,7 +183,7 @@ function serializeEpochStore(store: EpochStore): EpochStoreSnapshot {
   };
 }
 
-export function persistEpochs(store: EpochStore, dbName: string): void {
+export function persistEpochs(store: EpochStore, dbName: DatabaseName): void {
   if (typeof globalThis.localStorage === "undefined") return;
   globalThis.localStorage.setItem(
     `tablinum-epochs-${dbName}`,
@@ -181,7 +191,7 @@ export function persistEpochs(store: EpochStore, dbName: string): void {
   );
 }
 
-export function loadPersistedEpochs(dbName: string): Option.Option<EpochStore> {
+export function loadPersistedEpochs(dbName: DatabaseName): Option.Option<EpochStore> {
   if (typeof globalThis.localStorage === "undefined") return Option.none();
   const raw = globalThis.localStorage.getItem(`tablinum-epochs-${dbName}`);
   if (!raw) return Option.none();

@@ -2,6 +2,7 @@ import { Effect, Option, Schema } from "effect";
 import type { CollectionDef } from "../schema/collection.ts";
 import type { RelayHandle } from "../sync/relay.ts";
 import { RelayError } from "../errors.ts";
+import type { EpochId } from "../brands.ts";
 
 const optionalString = {
   _tag: "FieldDef" as const,
@@ -38,9 +39,9 @@ export interface MemberRecord {
   readonly about?: string;
   readonly nip05?: string;
   readonly addedAt: number;
-  readonly addedInEpoch: string;
+  readonly addedInEpoch: EpochId;
   readonly removedAt?: number;
-  readonly removedInEpoch?: string;
+  readonly removedInEpoch?: EpochId;
 }
 
 export interface AuthorProfile {

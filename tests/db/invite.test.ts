@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { encodeInvite, decodeInvite, type Invite } from "../../src/db/invite.ts";
+import { EpochId, DatabaseName } from "../../src/brands.ts";
 
 describe("invite", () => {
   const validInvite: Invite = {
-    epochKeys: [{ epochId: "epoch-0", key: "a".repeat(64) }],
+    epochKeys: [{ epochId: EpochId("epoch-0"), key: "a".repeat(64) }],
     relays: ["wss://relay1.example.com", "wss://relay2.example.com"],
-    dbName: "test-db",
+    dbName: DatabaseName("test-db"),
   };
 
   it("round-trips encode and decode", () => {
@@ -85,11 +86,11 @@ describe("invite", () => {
   it("handles multi-epoch invite", () => {
     const invite: Invite = {
       epochKeys: [
-        { epochId: "e0", key: "a".repeat(64) },
-        { epochId: "e1", key: "b".repeat(64) },
+        { epochId: EpochId("e0"), key: "a".repeat(64) },
+        { epochId: EpochId("e1"), key: "b".repeat(64) },
       ],
       relays: ["wss://relay.example.com"],
-      dbName: "test-db",
+      dbName: DatabaseName("test-db"),
     };
     const encoded = encodeInvite(invite);
     const decoded = decodeInvite(encoded);

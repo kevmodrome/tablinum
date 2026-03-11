@@ -3,6 +3,7 @@ import { openDB, type IDBPDatabase } from "idb";
 import type { NostrEvent } from "nostr-tools/pure";
 import { StorageError } from "../errors.ts";
 import type { SchemaConfig } from "../schema/types.ts";
+import type { DatabaseName } from "../brands.ts";
 
 export interface StoredEvent {
   readonly id: string;
@@ -103,7 +104,7 @@ function wrap<T>(label: string, fn: () => Promise<T>): Effect.Effect<T, StorageE
 }
 
 export function openIDBStorage(
-  dbName: string | undefined,
+  dbName: DatabaseName,
   schema: SchemaConfig,
 ): Effect.Effect<IDBStorageHandle, StorageError, Scope.Scope> {
   return Effect.gen(function* () {

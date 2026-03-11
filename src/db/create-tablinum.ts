@@ -31,6 +31,8 @@ import type { RelayHandle } from "../sync/relay.ts";
 import type { PublishQueueHandle } from "../sync/publish-queue.ts";
 import type { SyncStatusHandle } from "../sync/sync-status.ts";
 import {
+  EpochId,
+  DatabaseName,
   createEpochStoreFromInputs,
   addEpoch,
   getCurrentEpoch,
@@ -60,7 +62,7 @@ type AnyCollectionHandle = CollectionHandle<CollectionDef<CollectionFields>>;
 type CollectionEntry = readonly [string, CollectionDef<CollectionFields>];
 
 interface BootstrapState {
-  readonly dbNameResolved: string;
+  readonly dbNameResolved: DatabaseName;
   readonly identity: Identity;
   readonly epochStore: EpochStore;
 }
@@ -152,7 +154,7 @@ function resolveBootstrapState(
 
 function resolveEpochStore(
   config: ResolvedRuntimeConfig,
-  dbNameResolved: string,
+  dbNameResolved: DatabaseName,
   identity: Identity,
 ): EpochStore {
   const persisted = loadPersistedEpochs(dbNameResolved);
@@ -167,7 +169,7 @@ function resolveEpochStore(
   }
 
   const epochStore = createEpochStoreFromInputs(
-    [{ epochId: "epoch-0", key: bytesToHex(generateSecretKey()) }],
+    [{ epochId: EpochId("epoch-0"), key: bytesToHex(generateSecretKey()) }],
     { createdBy: identity.publicKey },
   );
   persistEpochs(epochStore, dbNameResolved);
@@ -176,7 +178,7 @@ function resolveEpochStore(
 
 function createRuntimeContext(
   runtimeScope: Scope.Scope,
-  dbNameResolved: string,
+  dbNameResolved: DatabaseName,
   schema: SchemaConfig,
 ): Effect.Effect<RuntimeContext, StorageError, Scope.Scope> {
   return Effect.gen(function* () {
@@ -351,21 +353,21 @@ function mapMemberRecord(record: Record<string, unknown>): MemberRecord {
   return {
     id: record.id as string,
     addedAt: record.addedAt as number,
-    addedInEpoch: record.addedInEpoch as string,
+    addedInEpoch: record.addedInEpoch as EpochId,
     ...(record.name !== undefined ? { name: record.name as string } : {}),
     ...(record.picture !== undefined ? { picture: record.picture as string } : {}),
     ...(record.about !== undefined ? { about: record.about as string } : {}),
     ...(record.nip05 !== undefined ? { nip05: record.nip05 as string } : {}),
     ...(record.removedAt !== undefined ? { removedAt: record.removedAt as number } : {}),
     ...(record.removedInEpoch !== undefined
-      ? { removedInEpoch: record.removedInEpoch as string }
+      ? { removedInEpoch: record.removedInEpoch as EpochId }
       : {}),
   };
 }
 
 function createDatabaseHandle<S extends SchemaConfig>(args: {
   readonly runtimeConfig: ResolvedRuntimeConfig;
-  readonly dbNameResolved: string;
+  readonly dbNameResolved: DatabaseName;
   readonly schemaEntries: ReadonlyArray<CollectionEntry>;
   readonly identity: Identity;
   readonly epochStore: EpochStore;
@@ -489,7 +491,7 @@ function createDatabaseHandle<S extends SchemaConfig>(args: {
 
           const memberRecord = yield* runtime.storage.getRecord("_members", pubkey);
           yield* putMemberRecord({
-            ...(memberRecord ?? { id: pubkey, addedAt: 0, addedInEpoch: "epoch-0" }),
+            ...(memberRecord ?? { id: pubkey, addedAt: 0, addedInEpoch: EpochId("epoch-0") }),
             removedAt: Date.now(),
             removedInEpoch: result.epoch.id,
           });
