@@ -71,25 +71,11 @@ export function createSyncHandle(
     );
   };
 
-  const shouldRejectWrite = (
-    authorPubkey: string,
-    epochPublicKey: string,
-  ): Effect.Effect<boolean, StorageError> =>
+  const shouldRejectWrite = (authorPubkey: string): Effect.Effect<boolean, StorageError> =>
     Effect.gen(function* () {
-      let writeEpoch;
-      for (const epoch of epochStore.epochs.values()) {
-        if (epoch.publicKey === epochPublicKey) {
-          writeEpoch = epoch;
-          break;
-        }
-      }
-      if (!writeEpoch) return false;
-
       const memberRecord = yield* storage.getRecord("_members", authorPubkey);
       if (!memberRecord) return false;
-      if (!memberRecord.removedAt) return false;
-
-      return (memberRecord.removedAt as number) <= writeEpoch.createdAt;
+      return !!memberRecord.removedAt;
     });
 
   const processGiftWrap = (
@@ -119,9 +105,8 @@ export function createSyncHandle(
       const collectionName = dTag.substring(0, colonIdx);
       const recordId = dTag.substring(colonIdx + 1);
 
-      const pTag = remoteGw.tags.find((t: string[]) => t[0] === "p")?.[1];
-      if (pTag && rumor.pubkey) {
-        const reject = yield* shouldRejectWrite(rumor.pubkey, pTag);
+      if (rumor.pubkey) {
+        const reject = yield* shouldRejectWrite(rumor.pubkey);
         if (reject) return null;
       }
 
