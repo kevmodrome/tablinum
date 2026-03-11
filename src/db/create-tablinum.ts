@@ -260,6 +260,7 @@ function createMemberService(
   context: MemberWriterContext,
   relayHandle: RuntimeContext["relayHandle"],
   relayUrls: readonly string[],
+  scope: Scope.Scope,
 ): MemberService {
   const knownAuthors = new Set<string>();
 
@@ -302,7 +303,7 @@ function createMemberService(
         }
 
         const profile = yield* fetchAuthorProfile(relayHandle, relayUrls, pubkey).pipe(
-          Effect.catch(() => Effect.succeed(null)),
+          Effect.catchTag("RelayError", () => Effect.succeed(null)),
         );
         if (profile) {
           const current = yield* context.storage.getRecord("_members", pubkey);
@@ -313,7 +314,7 @@ function createMemberService(
             });
           }
         }
-      }).pipe(Effect.ignore),
+      }).pipe(Effect.ignore, Effect.forkIn(scope)),
     );
   };
 
@@ -574,6 +575,7 @@ export function createTablinum<S extends SchemaConfig>(
       identity.privateKey,
       identity.publicKey,
       dbNameResolved,
+      runtime.runtimeScope,
       config.onSyncError ? (error) => reportSyncError(config.onSyncError, error) : undefined,
       (pubkey) => notifyAuthor?.(pubkey),
       config.onRemoved,
@@ -595,6 +597,7 @@ export function createTablinum<S extends SchemaConfig>(
       },
       runtime.relayHandle,
       runtimeConfig.relays,
+      runtime.runtimeScope,
     );
     notifyAuthor = memberService.onNewAuthor;
     const allSchemaEntries = [...schemaEntries, ["_members", membersCollectionDef] as const];

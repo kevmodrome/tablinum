@@ -73,7 +73,7 @@ const AuthorProfileSchema = Schema.Struct({
   nip05: Schema.optionalKey(Schema.String),
 });
 
-const decodeAuthorProfile = Schema.decodeUnknownSync(Schema.fromJsonString(AuthorProfileSchema));
+const decodeAuthorProfile = Schema.decodeUnknownEffect(Schema.fromJsonString(AuthorProfileSchema));
 
 export function fetchAuthorProfile(
   relay: RelayHandle,
@@ -86,11 +86,9 @@ export function fetchAuthorProfile(
         relay.fetchByFilter({ kinds: [0], authors: [pubkey], limit: 1 }, url),
       );
       if (result._tag === "Success" && result.success.length > 0) {
-        try {
-          return decodeAuthorProfile(result.success[0].content);
-        } catch {
-          return null;
-        }
+        return yield* decodeAuthorProfile(result.success[0].content).pipe(
+          Effect.orElseSucceed(() => null),
+        );
       }
     }
     return null;

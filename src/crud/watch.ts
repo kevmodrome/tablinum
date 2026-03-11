@@ -45,7 +45,7 @@ export function watchCollection<T>(
     Effect.gen(function* () {
       // Yield to the event loop so any pending IDB write transactions commit
       // before we read the initial state.
-      yield* Effect.promise(() => new Promise((r) => setTimeout(r, 0)));
+      yield* Effect.sleep(0);
       const initial = yield* query();
       return Stream.concat(Stream.make(initial), changes);
     }),

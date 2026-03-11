@@ -1,4 +1,4 @@
-import { Effect, Ref } from "effect";
+import { Effect, Ref, Scope } from "effect";
 import type { NostrEvent } from "nostr-tools/pure";
 import type { Filter } from "nostr-tools/filter";
 import { unwrapEvent } from "nostr-tools/nip59";
@@ -36,6 +36,7 @@ export function createSyncHandle(
   personalPrivateKey: Uint8Array,
   personalPublicKey: string,
   dbName: string,
+  scope: Scope.Scope,
   onSyncError?: ((error: unknown) => void) | undefined,
   onNewAuthor?: ((pubkey: string) => void) | undefined,
   onRemoved?: ((notice: RemovalNotice) => void) | undefined,
@@ -53,7 +54,13 @@ export function createSyncHandle(
     });
 
   const forkHandled = (effect: Effect.Effect<void>) => {
-    Effect.runFork(effect.pipe(Effect.tapError((e) => Effect.sync(() => onSyncError?.(e)))));
+    Effect.runFork(
+      effect.pipe(
+        Effect.tapError((e) => Effect.sync(() => onSyncError?.(e))),
+        Effect.ignore,
+        Effect.forkIn(scope),
+      ),
+    );
   };
 
   // Check if a write should be rejected based on member removal
@@ -122,15 +129,16 @@ export function createSyncHandle(
       let data: Record<string, unknown> | null = null;
       let kind: "create" | "update" | "delete" = "update";
 
-      try {
-        const parsed = JSON.parse(rumor.content);
-        if (parsed === null || parsed._deleted) {
-          kind = "delete";
-        } else {
-          data = parsed;
-        }
-      } catch {
-        return null;
+      const parsed = yield* Effect.try({
+        try: () => JSON.parse(rumor.content) as Record<string, unknown> | null,
+        catch: () => undefined,
+      }).pipe(Effect.orElseSucceed(() => undefined));
+      if (parsed === undefined) return null;
+
+      if (parsed === null || parsed._deleted) {
+        kind = "delete";
+      } else {
+        data = parsed;
       }
 
       const author: string | undefined = rumor.pubkey || undefined;
@@ -272,12 +280,17 @@ export function createSyncHandle(
         if (fetchResult._tag === "Failure") {
           onSyncError?.(fetchResult.failure);
         } else {
-          for (const remoteGw of fetchResult.success) {
-            const processed = yield* Effect.result(processGiftWrap(remoteGw));
-            if (processed._tag === "Success" && processed.success) {
-              changedCollections.add(processed.success);
-            }
-          }
+          yield* Effect.forEach(
+            fetchResult.success,
+            (remoteGw) =>
+              Effect.gen(function* () {
+                const processed = yield* Effect.result(processGiftWrap(remoteGw));
+                if (processed._tag === "Success" && processed.success) {
+                  changedCollections.add(processed.success);
+                }
+              }),
+            { discard: true },
+          );
         }
       }
 

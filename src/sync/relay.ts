@@ -35,16 +35,12 @@ const NegMessageFrameSchema = Schema.Tuple([
 
 const NegErrorFrameSchema = Schema.Tuple([Schema.Literal("NEG-ERR"), Schema.String, Schema.String]);
 
-const decodeNegFrame = Schema.decodeUnknownSync(
+const decodeNegFrame = Schema.decodeUnknownEffect(
   Schema.fromJsonString(Schema.Union([NegMessageFrameSchema, NegErrorFrameSchema])),
 );
 
 export function parseNegMessageFrame(data: string): NegFrame | null {
-  try {
-    return decodeNegFrame(data);
-  } catch {
-    return null;
-  }
+  return Effect.runSync(decodeNegFrame(data).pipe(Effect.orElseSucceed(() => null)));
 }
 
 export function createRelayHandle(): Effect.Effect<RelayHandle, never, Scope.Scope> {
@@ -125,26 +121,26 @@ export function createRelayHandle(): Effect.Effect<RelayHandle, never, Scope.Sco
     return {
       publish: (event, urls) =>
         Effect.gen(function* () {
-          const errors: Array<{ url: string; error: unknown }> = [];
-          for (const url of urls) {
-            const result = yield* Effect.result(
-              withRelay(url, (relay) =>
-                Effect.tryPromise({
-                  try: () => relay.publish(event),
-                  catch: (e) =>
-                    new RelayError({
-                      message: `Publish to ${url} failed: ${e instanceof Error ? e.message : String(e)}`,
-                      url,
-                      cause: e,
-                    }),
-                }),
+          const results = yield* Effect.forEach(
+            urls,
+            (url) =>
+              Effect.result(
+                withRelay(url, (relay) =>
+                  Effect.tryPromise({
+                    try: () => relay.publish(event),
+                    catch: (e) =>
+                      new RelayError({
+                        message: `Publish to ${url} failed: ${e instanceof Error ? e.message : String(e)}`,
+                        url,
+                        cause: e,
+                      }),
+                  }),
+                ),
               ),
-            );
-            if (result._tag === "Failure") {
-              errors.push({ url, error: result });
-            }
-          }
-          if (errors.length === urls.length && urls.length > 0) {
+            { concurrency: "unbounded" },
+          );
+          const failures = results.filter((r) => r._tag === "Failure");
+          if (failures.length === urls.length && urls.length > 0) {
             return yield* new RelayError({
               message: `Publish failed on all ${urls.length} relays`,
             });

@@ -65,19 +65,23 @@ export function buildValidator<F extends CollectionFields>(
   collectionName: string,
   def: CollectionDef<F>,
 ): RecordValidator<F> {
-  const decode = Schema.decodeUnknownSync(buildStructSchema(def, { includeId: true }));
+  const decode = Schema.decodeUnknownEffect(buildStructSchema(def, { includeId: true }));
 
   return (input: unknown) =>
-    Effect.try({
-      try: () =>
-        decode(input) as { readonly id: string } & {
-          readonly [K in keyof F]: unknown;
-        },
-      catch: (e) =>
-        new ValidationError({
-          message: `Validation failed for collection "${collectionName}": ${e instanceof Error ? e.message : String(e)}`,
-        }),
-    });
+    decode(input).pipe(
+      Effect.map(
+        (result) =>
+          result as { readonly id: string } & {
+            readonly [K in keyof F]: unknown;
+          },
+      ),
+      Effect.mapError(
+        (e) =>
+          new ValidationError({
+            message: `Validation failed for collection "${collectionName}": ${e.message}`,
+          }),
+      ),
+    );
 }
 
 export type PartialValidator<F extends CollectionFields> = (
@@ -88,7 +92,7 @@ export function buildPartialValidator<F extends CollectionFields>(
   collectionName: string,
   def: CollectionDef<F>,
 ): PartialValidator<F> {
-  const decode = Schema.decodeUnknownSync(buildStructSchema(def, { allOptional: true }));
+  const decode = Schema.decodeUnknownEffect(buildStructSchema(def, { allOptional: true }));
 
   return (input: unknown) =>
     Effect.gen(function* () {
@@ -106,12 +110,14 @@ export function buildPartialValidator<F extends CollectionFields>(
         });
       }
 
-      return yield* Effect.try({
-        try: () => decode(record) as { readonly [K in keyof F]?: unknown },
-        catch: (e) =>
-          new ValidationError({
-            message: `Validation failed for collection "${collectionName}": ${e instanceof Error ? e.message : String(e)}`,
-          }),
-      });
+      return yield* decode(record).pipe(
+        Effect.map((result) => result as { readonly [K in keyof F]?: unknown }),
+        Effect.mapError(
+          (e) =>
+            new ValidationError({
+              message: `Validation failed for collection "${collectionName}": ${e.message}`,
+            }),
+        ),
+      );
     });
 }
