@@ -1,5 +1,11 @@
 # tablinum
 
+## 0.2.0
+
+### Minor Changes
+
+- bcf1c79: Add multi-user-functionality and convert to more idiomatic Effect style
+
 ## 0.1.3
 
 ### Patch Changes
