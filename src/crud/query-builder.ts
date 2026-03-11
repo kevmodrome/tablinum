@@ -197,18 +197,7 @@ export interface QueryBuilder<T> {
   readonly watch: () => Stream.Stream<ReadonlyArray<T>, StorageError | ValidationError>;
 }
 
-export interface OrderByBuilder<T> {
-  readonly reverse: () => OrderByBuilder<T>;
-  readonly offset: (n: number) => OrderByBuilder<T>;
-  readonly limit: (n: number) => OrderByBuilder<T>;
-  readonly get: () => Effect.Effect<ReadonlyArray<T>, StorageError | ValidationError>;
-  readonly first: () => Effect.Effect<Option.Option<T>, StorageError | ValidationError>;
-  readonly count: () => Effect.Effect<number, StorageError | ValidationError>;
-  readonly watch: () => Stream.Stream<ReadonlyArray<T>, StorageError | ValidationError>;
-}
-
-// Keep for backwards compat
-export type QueryExecutor<T> = QueryBuilder<T>;
+export type OrderByBuilder<T> = QueryBuilder<T>;
 
 // ---------------------------------------------------------------------------
 // Builders
@@ -236,28 +225,6 @@ function makeQueryBuilder<T>(ctx: QueryContext, plan: QueryPlan): QueryBuilder<T
       }),
     offset: (n) => makeQueryBuilder(ctx, { ...plan, offset: n }),
     limit: (n) => makeQueryBuilder(ctx, { ...plan, limit: n }),
-    get: () => executeQuery<T>(ctx, plan),
-    first: () =>
-      Effect.map(executeQuery<T>(ctx, { ...plan, limit: 1 }), (results) =>
-        results.length > 0 ? Option.some(results[0] as T) : Option.none(),
-      ),
-    count: () => Effect.map(executeQuery<T>(ctx, plan), (results) => results.length),
-    watch: () => watchQuery<T>(ctx, plan),
-  };
-}
-
-function makeOrderByBuilder<T>(ctx: QueryContext, plan: QueryPlan): OrderByBuilder<T> {
-  return {
-    reverse: () =>
-      makeOrderByBuilder(ctx, {
-        ...plan,
-        orderBy: {
-          field: plan.orderBy!.field,
-          direction: plan.orderBy!.direction === "desc" ? "asc" : "desc",
-        },
-      }),
-    offset: (n) => makeOrderByBuilder(ctx, { ...plan, offset: n }),
-    limit: (n) => makeOrderByBuilder(ctx, { ...plan, limit: n }),
     get: () => executeQuery<T>(ctx, plan),
     first: () =>
       Effect.map(executeQuery<T>(ctx, { ...plan, limit: 1 }), (results) =>
@@ -392,11 +359,11 @@ export function createOrderByBuilder<T>(
   def: CollectionDef<CollectionFields>,
   fieldName: string,
   mapRecord: (record: Record<string, unknown>) => T,
-): OrderByBuilder<T> {
+): QueryBuilder<T> {
   const ctx: QueryContext = { storage, watchCtx, collectionName, def, mapRecord };
   const plan: QueryPlan = {
     ...emptyPlan(),
     orderBy: { field: fieldName, direction: "asc" },
   };
-  return makeOrderByBuilder(ctx, plan);
+  return makeQueryBuilder(ctx, plan);
 }

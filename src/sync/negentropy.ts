@@ -1,6 +1,8 @@
 import { Effect } from "effect";
 // @ts-expect-error -- vendored JS without types
 import { Negentropy, NegentropyStorageVector } from "../vendor/negentropy.js";
+import { hexToBytes } from "@noble/hashes/utils.js";
+import { GiftWrap } from "nostr-tools/kinds";
 import type { IDBStorageHandle } from "../storage/idb.ts";
 import type { RelayHandle } from "./relay.ts";
 import type { Filter } from "nostr-tools/filter";
@@ -9,14 +11,6 @@ import { SyncError, RelayError, StorageError } from "../errors.ts";
 export interface ReconcileResult {
   readonly haveIds: string[];
   readonly needIds: string[];
-}
-
-function hexToBytes(hex: string): Uint8Array {
-  const bytes = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < hex.length; i += 2) {
-    bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
-  }
-  return bytes;
 }
 
 export function reconcileWithRelay(
@@ -37,7 +31,7 @@ export function reconcileWithRelay(
     const neg = new Negentropy(storageVector, 0);
 
     const filter: Filter = {
-      kinds: [1059],
+      kinds: [GiftWrap],
       "#p": Array.isArray(publicKeys) ? publicKeys : [publicKeys],
     };
 

@@ -2,6 +2,7 @@ import { Effect, Option, Ref, Scope } from "effect";
 import type { NostrEvent } from "nostr-tools/pure";
 import type { Filter } from "nostr-tools/filter";
 import { unwrapEvent } from "nostr-tools/nip59";
+import { GiftWrap } from "nostr-tools/kinds";
 import type { IDBStorageHandle, StoredEvent, StoredGiftWrap } from "../storage/idb.ts";
 import { applyEvent } from "../storage/records-store.ts";
 import type { GiftWrapHandle } from "./gift-wrap.ts";
@@ -358,18 +359,18 @@ export function createSyncHandle(
     startSubscription: () =>
       Effect.gen(function* () {
         const pubKeys = getSubscriptionPubKeys();
-        yield* subscribeAcrossRelays({ kinds: [1059], "#p": pubKeys }, processRealtimeGiftWrap);
+        yield* subscribeAcrossRelays({ kinds: [GiftWrap], "#p": pubKeys }, processRealtimeGiftWrap);
 
         // Subscribe to personal pubkey for rotation events (multi-user only)
         if (!pubKeys.includes(personalPublicKey)) {
-          yield* subscribeAcrossRelays({ kinds: [1059], "#p": [personalPublicKey] }, (event) =>
+          yield* subscribeAcrossRelays({ kinds: [GiftWrap], "#p": [personalPublicKey] }, (event) =>
             Effect.result(processRotationGiftWrap(event)).pipe(Effect.asVoid),
           );
         }
       }),
 
     addEpochSubscription: (publicKey: string) =>
-      subscribeAcrossRelays({ kinds: [1059], "#p": [publicKey] }, processRealtimeGiftWrap),
+      subscribeAcrossRelays({ kinds: [GiftWrap], "#p": [publicKey] }, processRealtimeGiftWrap),
   };
 
   return handle;

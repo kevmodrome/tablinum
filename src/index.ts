@@ -25,12 +25,7 @@ export type { MemberRecord } from "./db/members.ts";
 // CRUD
 export type { CollectionHandle } from "./crud/collection-handle.ts";
 export type { CollectionOptions } from "./schema/collection.ts";
-export type {
-  WhereClause,
-  QueryBuilder,
-  OrderByBuilder,
-  QueryExecutor,
-} from "./crud/query-builder.ts";
+export type { WhereClause, QueryBuilder, OrderByBuilder } from "./crud/query-builder.ts";
 
 // Errors
 export {

@@ -8,7 +8,7 @@ import { NotFoundError, StorageError, ValidationError } from "../errors.ts";
 import { uuidv7 } from "../utils/uuid.ts";
 import type { WatchContext } from "./watch.ts";
 import { notifyChange, watchCollection } from "./watch.ts";
-import type { WhereClause, OrderByBuilder } from "./query-builder.ts";
+import type { WhereClause, QueryBuilder } from "./query-builder.ts";
 import { createWhereClause, createOrderByBuilder } from "./query-builder.ts";
 
 export interface CollectionHandle<C extends CollectionDef<CollectionFields>> {
@@ -27,7 +27,7 @@ export interface CollectionHandle<C extends CollectionDef<CollectionFields>> {
   readonly where: (field: string & keyof Omit<InferRecord<C>, "id">) => WhereClause<InferRecord<C>>;
   readonly orderBy: (
     field: string & keyof Omit<InferRecord<C>, "id">,
-  ) => OrderByBuilder<InferRecord<C>>;
+  ) => QueryBuilder<InferRecord<C>>;
 }
 
 function mapRecord<C extends CollectionDef<CollectionFields>>(

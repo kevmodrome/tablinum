@@ -1,7 +1,9 @@
 import { Option, Schema } from "effect";
 import { getPublicKey } from "nostr-tools/pure";
+import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { EpochId, DatabaseName } from "../brands.ts";
 export { EpochId, DatabaseName };
+export { bytesToHex, hexToBytes };
 
 export interface EpochKeyInput {
   readonly epochId: EpochId;
@@ -56,18 +58,6 @@ interface EpochStoreSnapshot {
     readonly parentEpoch?: string;
   }>;
   readonly currentEpochId: string;
-}
-
-export function hexToBytes(hex: string): Uint8Array {
-  const bytes = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < hex.length; i += 2) {
-    bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
-  }
-  return bytes;
-}
-
-export function bytesToHex(bytes: Uint8Array): string {
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 export function createEpochKey(
