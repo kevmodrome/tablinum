@@ -70,4 +70,28 @@ describe("relay neg frame parser", () => {
     expect(secondPublish).toHaveBeenCalledTimes(1);
     expect(secondClose).toHaveBeenCalledTimes(1);
   });
+
+  it("closes subscriptions when the relay scope closes", async () => {
+    const closeSubscription = vi.fn();
+    const closeRelay = vi.fn();
+    vi.spyOn(Relay, "connect").mockResolvedValue({
+      connected: true,
+      subscribe: vi.fn(() => ({
+        close: closeSubscription,
+      })),
+      close: closeRelay,
+    } as unknown as Relay);
+
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const relay = yield* createRelayHandle();
+          yield* relay.subscribe({ kinds: [1] }, "wss://relay.example.com", () => {});
+        }),
+      ),
+    );
+
+    expect(closeSubscription).toHaveBeenCalledTimes(1);
+    expect(closeRelay).toHaveBeenCalledTimes(1);
+  });
 });
