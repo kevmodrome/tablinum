@@ -56,9 +56,8 @@ export function createRotation(
   const newKeyHex = bytesToHex(newSk);
   const currentEpoch = getCurrentEpoch(epochStore);
   const epochId = EpochId(uuidv7());
-  const now = Date.now();
 
-  const epoch = createEpochKey(epochId, newKeyHex, now, senderPublicKey, currentEpoch.id);
+  const epoch = createEpochKey(epochId, newKeyHex, senderPublicKey, currentEpoch.id);
 
   const rotationData: RotationData = {
     _rotation: true,
@@ -72,7 +71,7 @@ export function createRotation(
     kind: 1,
     content: JSON.stringify(rotationData),
     tags: [["d", `_system:rotation:${epochId}`]],
-    created_at: Math.floor(now / 1000),
+    created_at: Math.floor(Date.now() / 1000),
   };
 
   const wrappedEvents: NostrEvent[] = [];
@@ -91,7 +90,7 @@ export function createRotation(
     kind: 1,
     content: JSON.stringify(removalData),
     tags: [["d", `_system:removed:${epochId}`]],
-    created_at: Math.floor(now / 1000),
+    created_at: Math.floor(Date.now() / 1000),
   };
   const removalNotices: NostrEvent[] = [];
   for (const removedPubkey of removedMemberPubkeys) {

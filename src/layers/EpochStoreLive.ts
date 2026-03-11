@@ -10,8 +10,6 @@ import {
   createEpochStoreFromInputs,
   deserializeEpochStore,
   stringifyEpochStore,
-  loadPersistedEpochs,
-  persistEpochs,
 } from "../db/epoch.ts";
 
 export const EpochStoreLive = Layer.effect(
@@ -25,20 +23,12 @@ export const EpochStoreLive = Layer.effect(
     if (typeof idbRaw === "string") {
       const idbStore = deserializeEpochStore(idbRaw);
       if (Option.isSome(idbStore)) {
-        persistEpochs(idbStore.value, config.dbName);
         return idbStore.value;
       }
     }
 
-    const persisted = loadPersistedEpochs(config.dbName);
-    if (Option.isSome(persisted)) {
-      yield* storage.putMeta("epochs", stringifyEpochStore(persisted.value));
-      return persisted.value;
-    }
-
     if (config.epochKeys && config.epochKeys.length > 0) {
       const store = createEpochStoreFromInputs(config.epochKeys);
-      persistEpochs(store, config.dbName);
       yield* storage.putMeta("epochs", stringifyEpochStore(store));
       return store;
     }
@@ -47,7 +37,6 @@ export const EpochStoreLive = Layer.effect(
       [{ epochId: EpochId("epoch-0"), key: bytesToHex(generateSecretKey()) }],
       { createdBy: identity.publicKey },
     );
-    persistEpochs(store, config.dbName);
     yield* storage.putMeta("epochs", stringifyEpochStore(store));
     return store;
   }),

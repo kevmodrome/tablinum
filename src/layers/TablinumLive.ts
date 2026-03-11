@@ -22,7 +22,6 @@ import {
   EpochId,
   getCurrentEpoch,
   addEpoch,
-  persistEpochs,
   stringifyEpochStore,
   exportEpochKeys,
 } from "../db/epoch.ts";
@@ -134,7 +133,6 @@ export const TablinumLive = Layer.effect(
       epochStore,
       identity.privateKey,
       identity.publicKey,
-      config.dbName,
       scope,
       config.onSyncError ? (error) => reportSyncError(config.onSyncError, error) : undefined,
       (pubkey) => notifyAuthor?.(pubkey),
@@ -344,7 +342,6 @@ export const TablinumLive = Layer.effect(
 
             addEpoch(epochStore, result.epoch);
             epochStore.currentEpochId = result.epoch.id;
-            persistEpochs(epochStore, config.dbName);
             yield* storage.putMeta("epochs", stringifyEpochStore(epochStore));
 
             const memberRecord = yield* storage.getRecord("_members", pubkey);

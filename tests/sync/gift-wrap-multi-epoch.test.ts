@@ -11,7 +11,7 @@ describe("gift wrap multi-epoch", () => {
     Effect.gen(function* () {
       const userSk = generateSecretKey();
       const groupKeyHex = bytesToHex(generateSecretKey());
-      const epoch0 = createEpochKey(EpochId("e0"), groupKeyHex, Date.now(), getPublicKey(userSk));
+      const epoch0 = createEpochKey(EpochId("e0"), groupKeyHex, getPublicKey(userSk));
       const store = createEpochStore(epoch0);
 
       const handle = createEpochGiftWrapHandle(userSk, store);
@@ -40,14 +40,8 @@ describe("gift wrap multi-epoch", () => {
       const k0Hex = bytesToHex(generateSecretKey());
       const k1Hex = bytesToHex(generateSecretKey());
 
-      const epoch0 = createEpochKey(EpochId("e0"), k0Hex, 1000, getPublicKey(userSk));
-      const epoch1 = createEpochKey(
-        EpochId("e1"),
-        k1Hex,
-        2000,
-        getPublicKey(userSk),
-        EpochId("e0"),
-      );
+      const epoch0 = createEpochKey(EpochId("e0"), k0Hex, getPublicKey(userSk));
+      const epoch1 = createEpochKey(EpochId("e1"), k1Hex, getPublicKey(userSk), EpochId("e0"));
 
       const store = createEpochStore(epoch0);
       const handle = createEpochGiftWrapHandle(userSk, store);
@@ -95,8 +89,8 @@ describe("gift wrap multi-epoch", () => {
       const k0Hex = bytesToHex(generateSecretKey());
       const k1Hex = bytesToHex(generateSecretKey());
 
-      const epoch0 = createEpochKey(EpochId("e0"), k0Hex, 1000, getPublicKey(userSk));
-      const epoch1 = createEpochKey(EpochId("e1"), k1Hex, 2000, getPublicKey(userSk));
+      const epoch0 = createEpochKey(EpochId("e0"), k0Hex, getPublicKey(userSk));
+      const epoch1 = createEpochKey(EpochId("e1"), k1Hex, getPublicKey(userSk));
 
       // Store with only epoch 1 (missing epoch 0)
       const store = createEpochStore(epoch1);
@@ -121,7 +115,7 @@ describe("gift wrap multi-epoch", () => {
   it.effect("two users with same epoch store can read each other", () =>
     Effect.gen(function* () {
       const groupKeyHex = bytesToHex(generateSecretKey());
-      const epoch0 = createEpochKey(EpochId("e0"), groupKeyHex, Date.now(), "creator");
+      const epoch0 = createEpochKey(EpochId("e0"), groupKeyHex, "creator");
 
       // User A
       const userASk = generateSecretKey();
