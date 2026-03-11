@@ -17,7 +17,8 @@ export interface StoredEvent {
 
 export interface StoredGiftWrap {
   readonly id: string;
-  readonly event: NostrEvent;
+  readonly eventId?: string;
+  readonly event?: NostrEvent;
   readonly createdAt: number;
 }
 
@@ -63,6 +64,10 @@ export interface IDBStorageHandle {
   readonly putGiftWrap: (gw: StoredGiftWrap) => Effect.Effect<void, StorageError>;
   readonly getGiftWrap: (id: string) => Effect.Effect<StoredGiftWrap | undefined, StorageError>;
   readonly getAllGiftWraps: () => Effect.Effect<ReadonlyArray<StoredGiftWrap>, StorageError>;
+  readonly deleteGiftWrap: (id: string) => Effect.Effect<void, StorageError>;
+  readonly stripGiftWrapBlob: (id: string) => Effect.Effect<void, StorageError>;
+
+  readonly deleteEvent: (id: string) => Effect.Effect<void, StorageError>;
 
   readonly getMeta: (key: string) => Effect.Effect<unknown | undefined, StorageError>;
   readonly putMeta: (key: string, value: unknown) => Effect.Effect<void, StorageError>;
@@ -235,6 +240,20 @@ export function openIDBStorage(
       getGiftWrap: (id) => wrap("getGiftWrap", () => db.get("giftwraps", id)),
 
       getAllGiftWraps: () => wrap("getAllGiftWraps", () => db.getAll("giftwraps")),
+
+      deleteGiftWrap: (id) =>
+        wrap("deleteGiftWrap", () => db.delete("giftwraps", id).then(() => undefined)),
+
+      stripGiftWrapBlob: (id) =>
+        wrap("stripGiftWrapBlob", async () => {
+          const existing = await db.get("giftwraps", id);
+          if (existing) {
+            const { event: _, ...tombstone } = existing;
+            await db.put("giftwraps", tombstone);
+          }
+        }),
+
+      deleteEvent: (id) => wrap("deleteEvent", () => db.delete("events", id).then(() => undefined)),
 
       getMeta: (key) => wrap("getMeta", () => db.get("_meta", key)),
 

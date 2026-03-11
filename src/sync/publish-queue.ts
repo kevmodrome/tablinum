@@ -33,13 +33,14 @@ export function createPublishQueue(
 
           for (const eventId of pending) {
             const gw = yield* storage.getGiftWrap(eventId);
-            if (!gw) {
+            if (!gw || !gw.event) {
               succeeded.add(eventId);
               continue;
             }
             const result = yield* Effect.result(relay.publish(gw.event, relayUrls));
             if (result._tag === "Success") {
               succeeded.add(eventId);
+              yield* storage.stripGiftWrapBlob(eventId);
             }
           }
 

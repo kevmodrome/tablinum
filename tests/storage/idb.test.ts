@@ -140,7 +140,7 @@ describe("IDBStorage", () => {
       });
       const gw = yield* storage.getGiftWrap("gw1");
       expect(gw).toBeDefined();
-      expect(gw!.event.kind).toBe(1059);
+      expect(gw!.event!.kind).toBe(1059);
     }),
   );
 });

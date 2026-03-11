@@ -77,29 +77,35 @@ export function createSyncHandle(
       const existing = yield* storage.getGiftWrap(remoteGw.id);
       if (existing) return null;
 
-      yield* storage.putGiftWrap({
-        id: remoteGw.id,
-        event: remoteGw,
-        createdAt: remoteGw.created_at,
-      });
-
       const unwrapResult = yield* Effect.result(giftWrapHandle.unwrap(remoteGw));
-      if (unwrapResult._tag === "Failure") return null;
+      if (unwrapResult._tag === "Failure") {
+        yield* storage.putGiftWrap({ id: remoteGw.id, createdAt: remoteGw.created_at });
+        return null;
+      }
 
       const rumor = unwrapResult.success;
 
       const dTag = rumor.tags.find((t: string[]) => t[0] === "d")?.[1];
-      if (!dTag) return null;
+      if (!dTag) {
+        yield* storage.putGiftWrap({ id: remoteGw.id, createdAt: remoteGw.created_at });
+        return null;
+      }
 
       const colonIdx = dTag.indexOf(":");
-      if (colonIdx === -1) return null;
+      if (colonIdx === -1) {
+        yield* storage.putGiftWrap({ id: remoteGw.id, createdAt: remoteGw.created_at });
+        return null;
+      }
 
       const collectionName = dTag.substring(0, colonIdx);
       const recordId = dTag.substring(colonIdx + 1);
 
       if (rumor.pubkey) {
         const reject = yield* shouldRejectWrite(rumor.pubkey);
-        if (reject) return null;
+        if (reject) {
+          yield* storage.putGiftWrap({ id: remoteGw.id, createdAt: remoteGw.created_at });
+          return null;
+        }
       }
 
       let data: Record<string, unknown> | null = null;
@@ -109,7 +115,10 @@ export function createSyncHandle(
         try: () => JSON.parse(rumor.content) as Record<string, unknown> | null,
         catch: () => undefined,
       }).pipe(Effect.orElseSucceed(() => undefined));
-      if (parsed === undefined) return null;
+      if (parsed === undefined) {
+        yield* storage.putGiftWrap({ id: remoteGw.id, createdAt: remoteGw.created_at });
+        return null;
+      }
 
       if (parsed === null || parsed._deleted) {
         kind = "delete";
@@ -129,8 +138,22 @@ export function createSyncHandle(
         author,
       };
 
+      yield* storage.putGiftWrap({
+        id: remoteGw.id,
+        eventId: event.id,
+        createdAt: remoteGw.created_at,
+      });
       yield* storage.putEvent(event);
-      yield* applyEvent(storage, event);
+      const didApply = yield* applyEvent(storage, event);
+
+      if (kind === "delete" && didApply) {
+        const oldEvents = yield* storage.getEventsByRecord(collectionName, recordId);
+        yield* Effect.forEach(
+          oldEvents.filter((e) => e.id !== event.id),
+          (e) => storage.deleteEvent(e.id),
+          { discard: true },
+        );
+      }
 
       if (author && onNewAuthor) {
         onNewAuthor(author);
@@ -267,12 +290,16 @@ export function createSyncHandle(
           haveIds,
           (id) =>
             Effect.gen(function* () {
-              const giftWrap = yield* storage.getGiftWrap(id);
-              if (giftWrap) {
-                const pubResult = yield* Effect.result(relay.publish(giftWrap.event, [url]));
+              const gw = yield* storage.getGiftWrap(id);
+              if (!gw) return;
+
+              if (gw.event) {
+                const pubResult = yield* Effect.result(relay.publish(gw.event, [url]));
                 if (pubResult._tag === "Failure") {
                   onSyncError?.(pubResult.failure);
                 }
+              } else {
+                yield* storage.deleteGiftWrap(id);
               }
             }),
           { discard: true },
@@ -307,8 +334,10 @@ export function createSyncHandle(
 
     publishLocal: (giftWrap) =>
       Effect.gen(function* () {
+        if (!giftWrap.event) return;
         const result = yield* Effect.result(relay.publish(giftWrap.event, relayUrls));
         if (result._tag === "Failure") {
+          yield* Effect.result(storage.putGiftWrap(giftWrap));
           yield* publishQueue.enqueue(giftWrap.id);
           if (onSyncError) onSyncError(result.failure);
         }

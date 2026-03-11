@@ -125,6 +125,13 @@ export function createCollectionHandle<C extends CollectionDef<CollectionFields>
           createdAt: Date.now(),
         };
         yield* commitEvent(event);
+
+        const oldEvents = yield* storage.getEventsByRecord(collectionName, id);
+        yield* Effect.forEach(
+          oldEvents.filter((e) => e.id !== event.id),
+          (e) => storage.deleteEvent(e.id),
+          { discard: true },
+        );
       }),
 
     get: (id) =>

@@ -161,12 +161,17 @@ export const TablinumLive = Layer.effect(
         }
 
         const gw = wrapResult.success;
-        yield* storage.putGiftWrap({ id: gw.id, event: gw, createdAt: gw.created_at });
+        yield* storage.putGiftWrap({ id: gw.id, eventId: event.id, createdAt: gw.created_at });
 
         yield* Effect.forkDetach(
           Effect.gen(function* () {
             const publishResult = yield* Effect.result(
-              syncHandle.publishLocal({ id: gw.id, event: gw, createdAt: gw.created_at }),
+              syncHandle.publishLocal({
+                id: gw.id,
+                eventId: event.id,
+                event: gw,
+                createdAt: gw.created_at,
+              }),
             );
             if (publishResult._tag === "Failure") {
               reportSyncError(config.onSyncError, publishResult.failure);
