@@ -36,7 +36,6 @@ const PersistedEpochSchema = Schema.Struct({
   privateKey: HexKeySchema,
   createdBy: Schema.String,
   parentEpoch: Schema.optionalKey(Schema.String),
-  createdAt: Schema.optionalKey(Schema.Number),
 });
 
 const PersistedEpochStoreSchema = Schema.Struct({

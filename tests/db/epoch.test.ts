@@ -126,18 +126,6 @@ describe("epoch", () => {
     expect(value.epochs.get(EpochId("e2"))!.parentEpoch).toBe("e1");
   });
 
-  it("deserializes legacy format with createdAt", () => {
-    const k1 = makeKeyHex();
-    const raw = JSON.stringify({
-      epochs: [{ id: "e1", privateKey: k1, createdAt: 1000, createdBy: "c1" }],
-      currentEpochId: "e1",
-    });
-    const result = deserializeEpochStore(raw);
-    expect(Option.isSome(result)).toBe(true);
-    const value = Option.getOrThrow(result);
-    expect(value.currentEpochId).toBe("e1");
-  });
-
   it("rejects invalid persisted epoch state", () => {
     const raw = JSON.stringify({
       epochs: [{ id: "e1", privateKey: "bad", createdBy: "c1" }],
