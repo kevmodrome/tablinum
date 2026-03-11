@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import type { NostrEvent } from "nostr-tools/pure";
 import { Relay } from "nostr-tools/relay";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -10,25 +10,23 @@ afterEach(() => {
 
 describe("relay neg frame parser", () => {
   it("parses NEG-MSG frames", () => {
-    expect(parseNegMessageFrame(JSON.stringify(["NEG-MSG", "sub-1", "abcd"]))).toEqual([
-      "NEG-MSG",
-      "sub-1",
-      "abcd",
-    ]);
+    const result = parseNegMessageFrame(JSON.stringify(["NEG-MSG", "sub-1", "abcd"]));
+    expect(Option.isSome(result)).toBe(true);
+    expect(Option.getOrThrow(result)).toEqual(["NEG-MSG", "sub-1", "abcd"]);
   });
 
   it("parses NEG-ERR frames", () => {
-    expect(parseNegMessageFrame(JSON.stringify(["NEG-ERR", "sub-1", "failure"]))).toEqual([
-      "NEG-ERR",
-      "sub-1",
-      "failure",
-    ]);
+    const result = parseNegMessageFrame(JSON.stringify(["NEG-ERR", "sub-1", "failure"]));
+    expect(Option.isSome(result)).toBe(true);
+    expect(Option.getOrThrow(result)).toEqual(["NEG-ERR", "sub-1", "failure"]);
   });
 
   it("rejects invalid NEG frames", () => {
-    expect(parseNegMessageFrame("not json")).toBeNull();
-    expect(parseNegMessageFrame(JSON.stringify(["EVENT", "sub-1", "abcd"]))).toBeNull();
-    expect(parseNegMessageFrame(JSON.stringify(["NEG-MSG", "sub-1"]))).toBeNull();
+    expect(Option.isNone(parseNegMessageFrame("not json"))).toBe(true);
+    expect(Option.isNone(parseNegMessageFrame(JSON.stringify(["EVENT", "sub-1", "abcd"])))).toBe(
+      true,
+    );
+    expect(Option.isNone(parseNegMessageFrame(JSON.stringify(["NEG-MSG", "sub-1"])))).toBe(true);
   });
 
   it("reconnects when a cached relay has already disconnected", async () => {

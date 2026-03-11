@@ -1,4 +1,4 @@
-import { Effect, Stream } from "effect";
+import { Effect, Option, Stream } from "effect";
 import type { CollectionDef, CollectionFields } from "../schema/collection.ts";
 import type { InferRecord } from "../schema/types.ts";
 import type { RecordValidator, PartialValidator } from "../schema/validate.ts";
@@ -21,7 +21,7 @@ export interface CollectionHandle<C extends CollectionDef<CollectionFields>> {
   ) => Effect.Effect<void, ValidationError | StorageError | NotFoundError>;
   readonly delete: (id: string) => Effect.Effect<void, StorageError | NotFoundError>;
   readonly get: (id: string) => Effect.Effect<InferRecord<C>, StorageError | NotFoundError>;
-  readonly first: () => Effect.Effect<InferRecord<C> | null, StorageError>;
+  readonly first: () => Effect.Effect<Option.Option<InferRecord<C>>, StorageError>;
   readonly count: () => Effect.Effect<number, StorageError>;
   readonly watch: () => Stream.Stream<ReadonlyArray<InferRecord<C>>, StorageError>;
   readonly where: (field: string & keyof Omit<InferRecord<C>, "id">) => WhereClause<InferRecord<C>>;
@@ -142,7 +142,7 @@ export function createCollectionHandle<C extends CollectionDef<CollectionFields>
     first: () =>
       Effect.map(storage.getAllRecords(collectionName), (all) => {
         const found = all.find((r) => !r._deleted);
-        return found ? mapRecord<C>(found) : null;
+        return found ? Option.some(mapRecord<C>(found)) : Option.none();
       }),
 
     count: () =>

@@ -1,4 +1,4 @@
-import { Effect, Schema, ScopedCache, Scope } from "effect";
+import { Effect, Option, Schema, ScopedCache, Scope } from "effect";
 import { Relay } from "nostr-tools/relay";
 import type { NostrEvent } from "nostr-tools/pure";
 import type { Filter } from "nostr-tools/filter";
@@ -39,8 +39,13 @@ const decodeNegFrame = Schema.decodeUnknownEffect(
   Schema.fromJsonString(Schema.Union([NegMessageFrameSchema, NegErrorFrameSchema])),
 );
 
-export function parseNegMessageFrame(data: string): NegFrame | null {
-  return Effect.runSync(decodeNegFrame(data).pipe(Effect.orElseSucceed(() => null)));
+export function parseNegMessageFrame(data: string): Option.Option<NegFrame> {
+  return Effect.runSync(
+    decodeNegFrame(data).pipe(
+      Effect.map(Option.some),
+      Effect.orElseSucceed(() => Option.none()),
+    ),
+  );
 }
 
 export function createRelayHandle(): Effect.Effect<RelayHandle, never, Scope.Scope> {
@@ -216,9 +221,10 @@ export function createRelayHandle(): Effect.Effect<RelayHandle, never, Scope.Sco
 
                 const handler = (msg: MessageEvent) => {
                   if (typeof msg.data !== "string") return;
-                  const frame = parseNegMessageFrame(msg.data);
-                  if (!frame || frame[1] !== subId) return;
+                  const frameOpt = parseNegMessageFrame(msg.data);
+                  if (Option.isNone(frameOpt) || frameOpt.value[1] !== subId) return;
 
+                  const frame = frameOpt.value;
                   cleanup();
                   if (frame[0] === "NEG-MSG") {
                     resolve({

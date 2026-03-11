@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import type { NostrEvent } from "nostr-tools/pure";
 import { RelayError } from "../../src/errors.ts";
 import { fetchAuthorProfile } from "../../src/db/members.ts";
@@ -41,7 +41,8 @@ describe("members", () => {
       fetchAuthorProfile(relay, ["wss://relay.example.com"], "pubkey"),
     );
 
-    expect(profile).toEqual({
+    expect(Option.isSome(profile)).toBe(true);
+    expect(Option.getOrThrow(profile)).toEqual({
       name: "Alice",
       picture: "https://example.com/alice.png",
       about: "Hello",
@@ -62,10 +63,11 @@ describe("members", () => {
       ),
     );
 
-    expect(profile).toEqual({ name: "Alice" });
+    expect(Option.isSome(profile)).toBe(true);
+    expect(Option.getOrThrow(profile)).toEqual({ name: "Alice" });
   });
 
-  it("returns null for invalid profile payloads", async () => {
+  it("returns None for invalid profile payloads", async () => {
     const relay = makeRelayHandle({
       "wss://relay.example.com": JSON.stringify({ name: 123 }),
     });
@@ -74,6 +76,6 @@ describe("members", () => {
       fetchAuthorProfile(relay, ["wss://relay.example.com"], "pubkey"),
     );
 
-    expect(profile).toBeNull();
+    expect(Option.isNone(profile)).toBe(true);
   });
 });

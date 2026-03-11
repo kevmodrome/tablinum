@@ -1,7 +1,6 @@
 import { Effect, Ref } from "effect";
 import type { IDBStorageHandle } from "../storage/idb.ts";
 import type { RelayHandle } from "./relay.ts";
-import type { NostrEvent } from "nostr-tools/pure";
 import type { RelayError, StorageError } from "../errors.ts";
 
 export interface PublishQueueHandle {
@@ -38,9 +37,7 @@ export function createPublishQueue(
               succeeded.add(eventId);
               continue;
             }
-            const result = yield* Effect.result(
-              relay.publish(gw.event as unknown as NostrEvent, relayUrls),
-            );
+            const result = yield* Effect.result(relay.publish(gw.event, relayUrls));
             if (result._tag === "Success") {
               succeeded.add(eventId);
             }

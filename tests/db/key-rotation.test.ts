@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { Option } from "effect";
 import { generateSecretKey, getPublicKey } from "nostr-tools/pure";
 import {
   createRotation,
@@ -72,68 +73,79 @@ describe("key rotation", () => {
     };
     const dTag = "_system:rotation:e1";
     const parsed = parseRotationEvent(JSON.stringify(data), dTag);
-    expect(parsed).not.toBeNull();
-    expect(parsed!.epochId).toBe("e1");
-    expect(parsed!.epochKey).toBe("a".repeat(64));
-    expect(parsed!.parentEpoch).toBe("e0");
-    expect(parsed!.removedMembers).toEqual(["pk1"]);
+    expect(Option.isSome(parsed)).toBe(true);
+    const value = Option.getOrThrow(parsed);
+    expect(value.epochId).toBe("e1");
+    expect(value.epochKey).toBe("a".repeat(64));
+    expect(value.parentEpoch).toBe("e0");
+    expect(value.removedMembers).toEqual(["pk1"]);
   });
 
   it("rejects non-rotation d-tags", () => {
     const data = JSON.stringify({ _rotation: true, epochId: "e1", epochKey: "a".repeat(64) });
-    expect(parseRotationEvent(data, "todos:123")).toBeNull();
-    expect(parseRotationEvent(data, "_members:abc")).toBeNull();
+    expect(Option.isNone(parseRotationEvent(data, "todos:123"))).toBe(true);
+    expect(Option.isNone(parseRotationEvent(data, "_members:abc"))).toBe(true);
   });
 
   it("rejects non-rotation content", () => {
-    expect(parseRotationEvent("{}", "_system:rotation:x")).toBeNull();
+    expect(Option.isNone(parseRotationEvent("{}", "_system:rotation:x"))).toBe(true);
     expect(
-      parseRotationEvent(JSON.stringify({ _rotation: false }), "_system:rotation:x"),
-    ).toBeNull();
-    expect(parseRotationEvent("invalid json", "_system:rotation:x")).toBeNull();
+      Option.isNone(parseRotationEvent(JSON.stringify({ _rotation: false }), "_system:rotation:x")),
+    ).toBe(true);
+    expect(Option.isNone(parseRotationEvent("invalid json", "_system:rotation:x"))).toBe(true);
   });
 
   it("rejects rotation with missing fields", () => {
     expect(
-      parseRotationEvent(JSON.stringify({ _rotation: true }), "_system:rotation:x"),
-    ).toBeNull();
+      Option.isNone(parseRotationEvent(JSON.stringify({ _rotation: true }), "_system:rotation:x")),
+    ).toBe(true);
     expect(
-      parseRotationEvent(JSON.stringify({ _rotation: true, epochId: "e1" }), "_system:rotation:x"),
-    ).toBeNull();
+      Option.isNone(
+        parseRotationEvent(
+          JSON.stringify({ _rotation: true, epochId: "e1" }),
+          "_system:rotation:x",
+        ),
+      ),
+    ).toBe(true);
   });
 
   it("rejects rotation with invalid epoch key payload", () => {
     expect(
-      parseRotationEvent(
-        JSON.stringify({
-          _rotation: true,
-          epochId: "e1",
-          epochKey: "short",
-          parentEpoch: "e0",
-          removedMembers: [],
-        }),
-        "_system:rotation:x",
+      Option.isNone(
+        parseRotationEvent(
+          JSON.stringify({
+            _rotation: true,
+            epochId: "e1",
+            epochKey: "short",
+            parentEpoch: "e0",
+            removedMembers: [],
+          }),
+          "_system:rotation:x",
+        ),
       ),
-    ).toBeNull();
+    ).toBe(true);
   });
 
   it("parses a removal notice", () => {
     const data = { _removed: true, epochId: "e1", removedBy: "pk-admin" };
     const parsed = parseRemovalNotice(JSON.stringify(data), "_system:removed:e1");
-    expect(parsed).not.toBeNull();
-    expect(parsed!.epochId).toBe("e1");
-    expect(parsed!.removedBy).toBe("pk-admin");
+    expect(Option.isSome(parsed)).toBe(true);
+    const value = Option.getOrThrow(parsed);
+    expect(value.epochId).toBe("e1");
+    expect(value.removedBy).toBe("pk-admin");
   });
 
   it("rejects non-removal d-tags", () => {
     const data = JSON.stringify({ _removed: true, epochId: "e1", removedBy: "pk" });
-    expect(parseRemovalNotice(data, "_system:rotation:e1")).toBeNull();
-    expect(parseRemovalNotice(data, "todos:123")).toBeNull();
+    expect(Option.isNone(parseRemovalNotice(data, "_system:rotation:e1"))).toBe(true);
+    expect(Option.isNone(parseRemovalNotice(data, "todos:123"))).toBe(true);
   });
 
   it("rejects invalid removal content", () => {
-    expect(parseRemovalNotice("{}", "_system:removed:x")).toBeNull();
-    expect(parseRemovalNotice("bad json", "_system:removed:x")).toBeNull();
-    expect(parseRemovalNotice(JSON.stringify({ _removed: true }), "_system:removed:x")).toBeNull();
+    expect(Option.isNone(parseRemovalNotice("{}", "_system:removed:x"))).toBe(true);
+    expect(Option.isNone(parseRemovalNotice("bad json", "_system:removed:x"))).toBe(true);
+    expect(
+      Option.isNone(parseRemovalNotice(JSON.stringify({ _removed: true }), "_system:removed:x")),
+    ).toBe(true);
   });
 });

@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 import type { CollectionDef } from "../schema/collection.ts";
 import type { RelayHandle } from "../sync/relay.ts";
 import { RelayError } from "../errors.ts";
@@ -79,7 +79,7 @@ export function fetchAuthorProfile(
   relay: RelayHandle,
   relayUrls: readonly string[],
   pubkey: string,
-): Effect.Effect<AuthorProfile | null, RelayError> {
+): Effect.Effect<Option.Option<AuthorProfile>, RelayError> {
   return Effect.gen(function* () {
     for (const url of relayUrls) {
       const result = yield* Effect.result(
@@ -87,10 +87,11 @@ export function fetchAuthorProfile(
       );
       if (result._tag === "Success" && result.success.length > 0) {
         return yield* decodeAuthorProfile(result.success[0].content).pipe(
-          Effect.orElseSucceed(() => null),
+          Effect.map(Option.some),
+          Effect.orElseSucceed(() => Option.none()),
         );
       }
     }
-    return null;
+    return Option.none();
   });
 }

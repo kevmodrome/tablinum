@@ -1,5 +1,6 @@
 import { Effect, Scope } from "effect";
 import { openDB, type IDBPDatabase } from "idb";
+import type { NostrEvent } from "nostr-tools/pure";
 import { StorageError } from "../errors.ts";
 import type { SchemaConfig } from "../schema/types.ts";
 
@@ -15,7 +16,7 @@ export interface StoredEvent {
 
 export interface StoredGiftWrap {
   readonly id: string;
-  readonly event: Record<string, unknown>;
+  readonly event: NostrEvent;
   readonly createdAt: number;
 }
 

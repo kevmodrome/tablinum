@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import type { WhereClause, QueryBuilder, OrderByBuilder } from "../crud/query-builder.ts";
 
 export interface SvelteQueryBuilder<T> {
@@ -59,7 +59,9 @@ function wrapQueryBuilder<T>(
     },
     first: () => {
       touchVersion();
-      return ready.then(() => Effect.runPromise(getBuilder().first()));
+      return ready.then(() =>
+        Effect.runPromise(Effect.map(getBuilder().first(), Option.getOrNull)),
+      );
     },
     count: () => {
       touchVersion();
@@ -105,7 +107,9 @@ export function wrapOrderByBuilder<T>(
     },
     first: () => {
       touchVersion();
-      return ready.then(() => Effect.runPromise(getBuilder().first()));
+      return ready.then(() =>
+        Effect.runPromise(Effect.map(getBuilder().first(), Option.getOrNull)),
+      );
     },
     count: () => {
       touchVersion();

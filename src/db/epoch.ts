@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Option, Schema } from "effect";
 import { getPublicKey } from "nostr-tools/pure";
 
 export interface EpochKeyInput {
@@ -181,13 +181,13 @@ export function persistEpochs(store: EpochStore, dbName: string): void {
   );
 }
 
-export function loadPersistedEpochs(dbName: string): EpochStore | null {
-  if (typeof globalThis.localStorage === "undefined") return null;
+export function loadPersistedEpochs(dbName: string): Option.Option<EpochStore> {
+  if (typeof globalThis.localStorage === "undefined") return Option.none();
   const raw = globalThis.localStorage.getItem(`tablinum-epochs-${dbName}`);
-  if (!raw) return null;
+  if (!raw) return Option.none();
   try {
-    return hydrateEpochStore(decodePersistedEpochStore(raw));
+    return Option.some(hydrateEpochStore(decodePersistedEpochStore(raw)));
   } catch {
-    return null;
+    return Option.none();
   }
 }

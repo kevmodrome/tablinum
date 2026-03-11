@@ -106,7 +106,7 @@ export class Collection<C extends CollectionDef<CollectionFields>> {
 
   first = (): Promise<InferRecord<C> | null> => {
     this.#touchVersion();
-    return this.#run(() => this.#handleOrThrow().first());
+    return this.#run(() => Effect.map(this.#handleOrThrow().first(), Option.getOrNull));
   };
 
   count = (): Promise<number> => {

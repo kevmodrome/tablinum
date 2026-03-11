@@ -1,4 +1,4 @@
-import { Effect, Ref, Scope } from "effect";
+import { Effect, Option, Ref, Scope } from "effect";
 import type { NostrEvent } from "nostr-tools/pure";
 import type { Filter } from "nostr-tools/filter";
 import { unwrapEvent } from "nostr-tools/nip59";
@@ -99,7 +99,7 @@ export function createSyncHandle(
       // Store gift wrap
       yield* storage.putGiftWrap({
         id: remoteGw.id,
-        event: remoteGw as unknown as Record<string, unknown>,
+        event: remoteGw,
         createdAt: remoteGw.created_at,
       });
 
@@ -195,14 +195,15 @@ export function createSyncHandle(
       if (!dTag) return false;
 
       // Check for removal notice (addressed to the removed member)
-      const removalNotice = parseRemovalNotice(rumor.content, dTag);
-      if (removalNotice) {
-        if (onRemoved) onRemoved(removalNotice);
+      const removalNoticeOpt = parseRemovalNotice(rumor.content, dTag);
+      if (Option.isSome(removalNoticeOpt)) {
+        if (onRemoved) onRemoved(removalNoticeOpt.value);
         return true;
       }
 
-      const rotationData = parseRotationEvent(rumor.content, dTag);
-      if (!rotationData) return false;
+      const rotationDataOpt = parseRotationEvent(rumor.content, dTag);
+      if (Option.isNone(rotationDataOpt)) return false;
+      const rotationData = rotationDataOpt.value;
 
       // Already have this epoch
       if (epochStore.epochs.has(rotationData.epochId)) return false;
@@ -301,9 +302,7 @@ export function createSyncHandle(
             Effect.gen(function* () {
               const giftWrap = yield* storage.getGiftWrap(id);
               if (giftWrap) {
-                const pubResult = yield* Effect.result(
-                  relay.publish(giftWrap.event as unknown as NostrEvent, [url]),
-                );
+                const pubResult = yield* Effect.result(relay.publish(giftWrap.event, [url]));
                 if (pubResult._tag === "Failure") {
                   onSyncError?.(pubResult.failure);
                 }
@@ -342,9 +341,7 @@ export function createSyncHandle(
 
     publishLocal: (giftWrap) =>
       Effect.gen(function* () {
-        const result = yield* Effect.result(
-          relay.publish(giftWrap.event as unknown as NostrEvent, relayUrls),
-        );
+        const result = yield* Effect.result(relay.publish(giftWrap.event, relayUrls));
         if (result._tag === "Failure") {
           yield* publishQueue.enqueue(giftWrap.id);
           if (onSyncError) onSyncError(result.failure);

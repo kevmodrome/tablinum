@@ -1,4 +1,4 @@
-import { Effect, Ref, Stream } from "effect";
+import { Effect, Option, Ref, Stream } from "effect";
 import type { IDBStorageHandle } from "../storage/idb.ts";
 import type { StorageError, ValidationError } from "../errors.ts";
 import { ValidationError as VE } from "../errors.ts";
@@ -192,7 +192,7 @@ export interface QueryBuilder<T> {
   readonly offset: (n: number) => QueryBuilder<T>;
   readonly limit: (n: number) => QueryBuilder<T>;
   readonly get: () => Effect.Effect<ReadonlyArray<T>, StorageError | ValidationError>;
-  readonly first: () => Effect.Effect<T | null, StorageError | ValidationError>;
+  readonly first: () => Effect.Effect<Option.Option<T>, StorageError | ValidationError>;
   readonly count: () => Effect.Effect<number, StorageError | ValidationError>;
   readonly watch: () => Stream.Stream<ReadonlyArray<T>, StorageError | ValidationError>;
 }
@@ -202,7 +202,7 @@ export interface OrderByBuilder<T> {
   readonly offset: (n: number) => OrderByBuilder<T>;
   readonly limit: (n: number) => OrderByBuilder<T>;
   readonly get: () => Effect.Effect<ReadonlyArray<T>, StorageError | ValidationError>;
-  readonly first: () => Effect.Effect<T | null, StorageError | ValidationError>;
+  readonly first: () => Effect.Effect<Option.Option<T>, StorageError | ValidationError>;
   readonly count: () => Effect.Effect<number, StorageError | ValidationError>;
   readonly watch: () => Stream.Stream<ReadonlyArray<T>, StorageError | ValidationError>;
 }
@@ -238,7 +238,9 @@ function makeQueryBuilder<T>(ctx: QueryContext, plan: QueryPlan): QueryBuilder<T
     limit: (n) => makeQueryBuilder(ctx, { ...plan, limit: n }),
     get: () => executeQuery<T>(ctx, plan),
     first: () =>
-      Effect.map(executeQuery<T>(ctx, { ...plan, limit: 1 }), (results) => results[0] ?? null),
+      Effect.map(executeQuery<T>(ctx, { ...plan, limit: 1 }), (results) =>
+        results.length > 0 ? Option.some(results[0] as T) : Option.none(),
+      ),
     count: () => Effect.map(executeQuery<T>(ctx, plan), (results) => results.length),
     watch: () => watchQuery<T>(ctx, plan),
   };
@@ -258,7 +260,9 @@ function makeOrderByBuilder<T>(ctx: QueryContext, plan: QueryPlan): OrderByBuild
     limit: (n) => makeOrderByBuilder(ctx, { ...plan, limit: n }),
     get: () => executeQuery<T>(ctx, plan),
     first: () =>
-      Effect.map(executeQuery<T>(ctx, { ...plan, limit: 1 }), (results) => results[0] ?? null),
+      Effect.map(executeQuery<T>(ctx, { ...plan, limit: 1 }), (results) =>
+        results.length > 0 ? Option.some(results[0] as T) : Option.none(),
+      ),
     count: () => Effect.map(executeQuery<T>(ctx, plan), (results) => results.length),
     watch: () => watchQuery<T>(ctx, plan),
   };

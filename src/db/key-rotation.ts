@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Option, Schema } from "effect";
 import { generateSecretKey } from "nostr-tools/pure";
 import { wrapEvent } from "nostr-tools/nip59";
 import type { NostrEvent } from "nostr-tools/pure";
@@ -104,20 +104,20 @@ export function createRotation(
   return { epoch, wrappedEvents, removalNotices };
 }
 
-export function parseRotationEvent(content: string, dTag: string): RotationData | null {
-  if (!dTag.startsWith("_system:rotation:")) return null;
+export function parseRotationEvent(content: string, dTag: string): Option.Option<RotationData> {
+  if (!dTag.startsWith("_system:rotation:")) return Option.none();
   try {
-    return decodeRotationData(content);
+    return Option.some(decodeRotationData(content));
   } catch {
-    return null;
+    return Option.none();
   }
 }
 
-export function parseRemovalNotice(content: string, dTag: string): RemovalNotice | null {
-  if (!dTag.startsWith("_system:removed:")) return null;
+export function parseRemovalNotice(content: string, dTag: string): Option.Option<RemovalNotice> {
+  if (!dTag.startsWith("_system:removed:")) return Option.none();
   try {
-    return decodeRemovalNotice(content);
+    return Option.some(decodeRemovalNotice(content));
   } catch {
-    return null;
+    return Option.none();
   }
 }

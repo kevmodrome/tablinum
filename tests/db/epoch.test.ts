@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { Option } from "effect";
 import { generateSecretKey, getPublicKey } from "nostr-tools/pure";
 import {
   createEpochKey,
@@ -156,10 +157,11 @@ describe("epoch", () => {
       persistEpochs(store, "todos");
       const persisted = loadPersistedEpochs("todos");
 
-      expect(persisted).not.toBeNull();
-      expect(persisted!.currentEpochId).toBe("e2");
-      expect(Array.from(persisted!.epochs.keys())).toEqual(["e1", "e2"]);
-      expect(persisted!.epochs.get("e2")!.parentEpoch).toBe("e1");
+      expect(Option.isSome(persisted)).toBe(true);
+      const value = Option.getOrThrow(persisted);
+      expect(value.currentEpochId).toBe("e2");
+      expect(Array.from(value.epochs.keys())).toEqual(["e1", "e2"]);
+      expect(value.epochs.get("e2")!.parentEpoch).toBe("e1");
     });
   });
 
@@ -173,7 +175,7 @@ describe("epoch", () => {
         }),
       );
 
-      expect(loadPersistedEpochs("todos")).toBeNull();
+      expect(Option.isNone(loadPersistedEpochs("todos"))).toBe(true);
     });
   });
 });

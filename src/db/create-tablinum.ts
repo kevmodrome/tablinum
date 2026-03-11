@@ -1,4 +1,4 @@
-import { Effect, Exit, PubSub, Ref, Scope } from "effect";
+import { Effect, Exit, Option, PubSub, Ref, Scope } from "effect";
 import type { CollectionFields } from "../schema/collection.ts";
 import type { CollectionDef } from "../schema/collection.ts";
 import type { SchemaConfig } from "../schema/types.ts";
@@ -156,8 +156,8 @@ function resolveEpochStore(
   identity: Identity,
 ): EpochStore {
   const persisted = loadPersistedEpochs(dbNameResolved);
-  if (persisted) {
-    return persisted;
+  if (Option.isSome(persisted)) {
+    return persisted.value;
   }
 
   if (config.epochKeys && config.epochKeys.length > 0) {
@@ -235,7 +235,7 @@ function createOnWrite(
       const gw = wrapResult.success;
       yield* storage.putGiftWrap({
         id: gw.id,
-        event: gw as unknown as Record<string, unknown>,
+        event: gw,
         createdAt: gw.created_at,
       });
 
@@ -244,7 +244,7 @@ function createOnWrite(
           const publishResult = yield* Effect.result(
             publishLocal({
               id: gw.id,
-              event: gw as unknown as Record<string, unknown>,
+              event: gw,
               createdAt: gw.created_at,
             }),
           );
@@ -302,15 +302,15 @@ function createMemberService(
           });
         }
 
-        const profile = yield* fetchAuthorProfile(relayHandle, relayUrls, pubkey).pipe(
-          Effect.catchTag("RelayError", () => Effect.succeed(null)),
+        const profileOpt = yield* fetchAuthorProfile(relayHandle, relayUrls, pubkey).pipe(
+          Effect.catchTag("RelayError", () => Effect.succeed(Option.none())),
         );
-        if (profile) {
+        if (Option.isSome(profileOpt)) {
           const current = yield* context.storage.getRecord("_members", pubkey);
           if (current) {
             yield* context.storage.putRecord("_members", {
               ...current,
-              ...profile,
+              ...profileOpt.value,
             });
           }
         }
