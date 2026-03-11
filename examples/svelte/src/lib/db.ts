@@ -1,4 +1,5 @@
-import { createTablinum, field, collection, type InferRecord } from "tablinum/svelte";
+import { Tablinum, field, collection, decodeInvite, type InferRecord } from "tablinum/svelte";
+import { dbUiState, type RemovedInfo } from "./db-state.svelte";
 
 const todosCollection = collection(
   "todos",
@@ -15,30 +16,44 @@ export type TodoRecord = InferRecord<typeof todosCollection>;
 const schema = { todos: todosCollection };
 export type AppSchema = typeof schema;
 
-function getKeyFromUrl(): Uint8Array | undefined {
+function getInviteFromUrl(): ReturnType<typeof decodeInvite> | undefined {
   const params = new URLSearchParams(window.location.search);
-  const hex = params.get("key");
-  if (!hex || hex.length !== 64) return undefined;
-  const bytes = new Uint8Array(32);
-  for (let i = 0; i < 32; i++) {
-    bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  const invite = params.get("invite");
+  if (!invite) return undefined;
+  try {
+    return decodeInvite(invite);
+  } catch {
+    console.error("[tablinum] Invalid invite in URL");
+    return undefined;
   }
-  return bytes;
 }
 
-export async function initDb() {
-  const importedKey = getKeyFromUrl();
-  const dbSuffix = importedKey ? "-imported" : "";
+let _db: Tablinum<AppSchema> | null = null;
 
-  const db = await createTablinum({
+export function initDb(opts?: { onRemoved?: (info: RemovedInfo) => void }) {
+  if (_db && _db.status !== "closed" && _db.status !== "error") return _db;
+
+  const invite = getInviteFromUrl();
+  dbUiState.reset(!!invite);
+
+  _db = new Tablinum({
     schema,
-    relays: ["wss://relay.nostr.place"],
-    dbName: `tablinum-svelte-demo${dbSuffix}`,
-    privateKey: importedKey,
+    relays: invite?.relays ?? ["wss://relay.nostr.place"],
+    dbName: invite?.dbName ?? "tablinum-svelte-demo",
+    epochKeys: invite?.epochKeys,
     onSyncError: (err) => {
       console.error("[tablinum:sync]", err.message);
     },
+    onRemoved: (info) => {
+      dbUiState.markRemoved(info);
+      opts?.onRemoved?.(info);
+    },
   });
 
-  return { db, imported: !!importedKey };
+  return _db;
+}
+
+export function getDb(): Tablinum<AppSchema> {
+  if (!_db) throw new Error("Database not initialized — did hooks.client.ts run?");
+  return _db;
 }

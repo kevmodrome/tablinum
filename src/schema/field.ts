@@ -5,7 +5,6 @@ export interface FieldDef<out T = unknown> {
   readonly kind: FieldKind;
   readonly isOptional: boolean;
   readonly isArray: boolean;
-  /** Phantom type carrier — never read at runtime. */
   readonly _T?: T;
 }
 

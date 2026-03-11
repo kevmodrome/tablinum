@@ -1,6 +1,8 @@
 import { Effect } from "effect";
 // @ts-expect-error -- vendored JS without types
 import { Negentropy, NegentropyStorageVector } from "../vendor/negentropy.js";
+import { hexToBytes } from "@noble/hashes/utils.js";
+import { GiftWrap } from "nostr-tools/kinds";
 import type { IDBStorageHandle } from "../storage/idb.ts";
 import type { RelayHandle } from "./relay.ts";
 import type { Filter } from "nostr-tools/filter";
@@ -11,19 +13,11 @@ export interface ReconcileResult {
   readonly needIds: string[];
 }
 
-function hexToBytes(hex: string): Uint8Array {
-  const bytes = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < hex.length; i += 2) {
-    bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
-  }
-  return bytes;
-}
-
 export function reconcileWithRelay(
   storage: IDBStorageHandle,
   relay: RelayHandle,
   relayUrl: string,
-  publicKey: string,
+  publicKeys: string | string[],
 ): Effect.Effect<ReconcileResult, SyncError | RelayError | StorageError> {
   return Effect.gen(function* () {
     const allGiftWraps = yield* storage.getAllGiftWraps();
@@ -37,16 +31,16 @@ export function reconcileWithRelay(
     const neg = new Negentropy(storageVector, 0);
 
     const filter: Filter = {
-      kinds: [1059],
-      "#p": [publicKey],
+      kinds: [GiftWrap],
+      "#p": Array.isArray(publicKeys) ? publicKeys : [publicKeys],
     };
 
     const allHaveIds: string[] = [];
     const allNeedIds: string[] = [];
     const subId = `neg-${Date.now()}`;
 
-    const initialMsg: string = yield* Effect.tryPromise({
-      try: () => neg.initiate(),
+    const initialMsg: string = yield* Effect.try({
+      try: () => neg.initiate() as string,
       catch: (e) =>
         new SyncError({
           message: `Negentropy initiate failed: ${e instanceof Error ? e.message : String(e)}`,
@@ -62,8 +56,8 @@ export function reconcileWithRelay(
 
       if (response.msgHex === null) break;
 
-      const reconcileResult: [string | null, string[], string[]] = yield* Effect.tryPromise({
-        try: () => neg.reconcile(response.msgHex),
+      const reconcileResult: [string | null, string[], string[]] = yield* Effect.try({
+        try: () => neg.reconcile(response.msgHex) as [string | null, string[], string[]],
         catch: (e) =>
           new SyncError({
             message: `Negentropy reconcile failed: ${e instanceof Error ? e.message : String(e)}`,

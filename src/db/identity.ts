@@ -1,15 +1,12 @@
 import { Effect } from "effect";
 import { getPublicKey } from "nostr-tools/pure";
+import { bytesToHex } from "@noble/hashes/utils.js";
 import { CryptoError } from "../errors.ts";
 
 export interface Identity {
   readonly privateKey: Uint8Array;
   readonly publicKey: string;
   readonly exportKey: () => string;
-}
-
-function bytesToHex(bytes: Uint8Array): string {
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 export function createIdentity(suppliedKey?: Uint8Array): Effect.Effect<Identity, CryptoError> {
@@ -30,15 +27,14 @@ export function createIdentity(suppliedKey?: Uint8Array): Effect.Effect<Identity
 
     const privateKeyHex = bytesToHex(privateKey);
 
-    let publicKey: string;
-    try {
-      publicKey = getPublicKey(privateKey);
-    } catch (e) {
-      return yield* new CryptoError({
-        message: `Failed to derive public key: ${e instanceof Error ? e.message : String(e)}`,
-        cause: e,
-      });
-    }
+    const publicKey = yield* Effect.try({
+      try: () => getPublicKey(privateKey),
+      catch: (e) =>
+        new CryptoError({
+          message: `Failed to derive public key: ${e instanceof Error ? e.message : String(e)}`,
+          cause: e,
+        }),
+    });
 
     return {
       privateKey,

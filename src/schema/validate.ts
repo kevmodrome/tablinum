@@ -3,31 +3,58 @@ import type { CollectionDef, CollectionFields } from "./collection.ts";
 import type { FieldDef } from "./field.ts";
 import { ValidationError } from "../errors.ts";
 
-function fieldDefToSchema(fd: FieldDef): Schema.Schema<unknown> {
-  let base: Schema.Schema<unknown>;
+type DecodableSchema<T = unknown> = Schema.Schema<T> & {
+  readonly DecodingServices: never;
+};
+
+function fieldDefToSchema(fd: FieldDef): DecodableSchema {
+  let base: DecodableSchema;
   switch (fd.kind) {
     case "string":
-      base = Schema.String as Schema.Schema<unknown>;
+      base = Schema.String as DecodableSchema;
       break;
     case "number":
-      base = Schema.Number as Schema.Schema<unknown>;
+      base = Schema.Number as DecodableSchema;
       break;
     case "boolean":
-      base = Schema.Boolean as Schema.Schema<unknown>;
+      base = Schema.Boolean as DecodableSchema;
       break;
     case "json":
-      base = Schema.Unknown;
+      base = Schema.Unknown as DecodableSchema;
       break;
   }
 
   if (fd.isArray) {
-    base = Schema.Array(base) as Schema.Schema<unknown>;
+    base = Schema.Array(base) as DecodableSchema;
   }
   if (fd.isOptional) {
-    base = Schema.UndefinedOr(base) as Schema.Schema<unknown>;
+    base = Schema.UndefinedOr(base) as DecodableSchema;
   }
 
   return base;
+}
+
+function buildStructSchema<F extends CollectionFields>(
+  def: CollectionDef<F>,
+  options: {
+    readonly includeId?: boolean;
+    readonly allOptional?: boolean;
+  } = {},
+): DecodableSchema {
+  const schemaFields: Record<string, DecodableSchema> = {};
+
+  if (options.includeId) {
+    schemaFields.id = Schema.String as DecodableSchema;
+  }
+
+  for (const [name, fieldDef] of Object.entries(def.fields)) {
+    const fieldSchema = fieldDefToSchema(fieldDef);
+    schemaFields[name] = options.allOptional
+      ? (Schema.optionalKey(fieldSchema) as DecodableSchema)
+      : fieldSchema;
+  }
+
+  return Schema.Struct(schemaFields) as DecodableSchema;
 }
 
 export type RecordValidator<F extends CollectionFields> = (
@@ -38,34 +65,23 @@ export function buildValidator<F extends CollectionFields>(
   collectionName: string,
   def: CollectionDef<F>,
 ): RecordValidator<F> {
-  const schemaFields: Record<string, Schema.Schema<unknown>> = {
-    id: Schema.String as Schema.Schema<unknown>,
-  };
-  for (const [name, fieldDef] of Object.entries(def.fields)) {
-    schemaFields[name] = fieldDefToSchema(fieldDef);
-  }
-
-  const recordSchema = Schema.Struct(
-    schemaFields as {
-      [K: string]: Schema.Schema<unknown>;
-    },
-  );
-
-  const decode = Schema.decodeUnknownSync(recordSchema);
+  const decode = Schema.decodeUnknownEffect(buildStructSchema(def, { includeId: true }));
 
   return (input: unknown) =>
-    Effect.gen(function* () {
-      try {
-        const result = decode(input);
-        return result as { readonly id: string } & {
-          readonly [K in keyof F]: unknown;
-        };
-      } catch (e) {
-        return yield* new ValidationError({
-          message: `Validation failed for collection "${collectionName}": ${e instanceof Error ? e.message : String(e)}`,
-        });
-      }
-    });
+    decode(input).pipe(
+      Effect.map(
+        (result) =>
+          result as { readonly id: string } & {
+            readonly [K in keyof F]: unknown;
+          },
+      ),
+      Effect.mapError(
+        (e) =>
+          new ValidationError({
+            message: `Validation failed for collection "${collectionName}": ${e.message}`,
+          }),
+      ),
+    );
 }
 
 export type PartialValidator<F extends CollectionFields> = (
@@ -76,6 +92,8 @@ export function buildPartialValidator<F extends CollectionFields>(
   collectionName: string,
   def: CollectionDef<F>,
 ): PartialValidator<F> {
+  const decode = Schema.decodeUnknownEffect(buildStructSchema(def, { allOptional: true }));
+
   return (input: unknown) =>
     Effect.gen(function* () {
       if (typeof input !== "object" || input === null) {
@@ -84,28 +102,22 @@ export function buildPartialValidator<F extends CollectionFields>(
         });
       }
       const record = input as Record<string, unknown>;
-      for (const [key, value] of Object.entries(record)) {
-        const fieldDef = def.fields[key];
-        if (!fieldDef) {
-          return yield* new ValidationError({
-            message: `Unknown field "${key}" in collection "${collectionName}"`,
-            field: key,
-          });
-        }
-        if (value === undefined && fieldDef.isOptional) {
-          continue;
-        }
-        const fieldSchema = fieldDefToSchema(fieldDef);
-        const decode = Schema.decodeUnknownSync(fieldSchema);
-        try {
-          decode(value);
-        } catch (e) {
-          return yield* new ValidationError({
-            message: `Validation failed for field "${key}" in collection "${collectionName}": ${e instanceof Error ? e.message : String(e)}`,
-            field: key,
-          });
-        }
+      const unknownField = Object.keys(record).find((key) => !Object.hasOwn(def.fields, key));
+      if (unknownField !== undefined) {
+        return yield* new ValidationError({
+          message: `Unknown field "${unknownField}" in collection "${collectionName}"`,
+          field: unknownField,
+        });
       }
-      return record as { readonly [K in keyof F]?: unknown };
+
+      return yield* decode(record).pipe(
+        Effect.map((result) => result as { readonly [K in keyof F]?: unknown }),
+        Effect.mapError(
+          (e) =>
+            new ValidationError({
+              message: `Validation failed for collection "${collectionName}": ${e.message}`,
+            }),
+        ),
+      );
     });
 }

@@ -60,7 +60,7 @@ const program = Effect.gen(function* () {
   const todo = yield* todos.get(id);
 
   // Query
-  const pending = yield* todos.where("done").equals(false).toArray();
+  const pending = yield* todos.where("done").equals(false).get();
 
   // Update
   yield* todos.update(id, { done: true });
@@ -76,13 +76,26 @@ Effect.runPromise(Effect.scoped(program));
 
 Import from `tablinum/svelte` for reactive bindings that use Svelte 5 runes. No Effect knowledge needed — the API is plain async/await.
 
+This API uses Svelte's async runes support, so enable it in your app config:
+
+```js
+// svelte.config.js
+const config = {
+  compilerOptions: {
+    experimental: {
+      async: true,
+    },
+  },
+};
+```
+
 ### Setup
 
 Create a database helper that defines your schema and initializes the database:
 
 ```typescript
 // src/lib/db.ts
-import { createTablinum, collection, field } from "tablinum/svelte";
+import { Tablinum, collection, field } from "tablinum/svelte";
 
 const schema = {
   todos: collection(
@@ -97,92 +110,90 @@ const schema = {
 
 export type AppSchema = typeof schema;
 
-export async function initDb() {
-  return createTablinum({
-    schema,
-    relays: ["wss://relay.example.com"],
-  });
-}
+export const db = new Tablinum({
+  schema,
+  relays: ["wss://relay.example.com"],
+});
+
+export const todos = db.collection("todos");
 ```
 
 ### Component
 
-Collections and live queries are reactive — their `.items` property updates automatically when data changes.
+Async collection reads are reactive when used inside `$derived(await ...)` expressions.
 
 ```svelte
 <script lang="ts">
-  import { onDestroy } from "svelte";
-  import { initDb, type AppSchema } from "$lib/db";
-  import type { Database, Collection, LiveQuery } from "tablinum/svelte";
-
-  let db: Database<AppSchema> | null = $state(null);
-  let todos: Collection<AppSchema["todos"]> | null = $state(null);
-  let pending: LiveQuery<{ id: string; title: string; done: boolean }> | null = $state(null);
+  import { db, todos } from "$lib/db";
 
   let title = $state("");
-
-  async function init() {
-    db = await initDb();
-    todos = db.collection("todos");
-    pending = todos.where("done").equals(false).live();
-  }
-
-  init();
+  let booted = $derived(await db.ready.then(() => true, () => false));
+  let pending = $derived(
+    booted && db.status === "ready"
+      ? await todos.where("done").equals(false).get()
+      : [],
+  );
 
   async function addTodo(e: SubmitEvent) {
     e.preventDefault();
-    if (!todos || !title.trim()) return;
+    if (!title.trim()) return;
     await todos.add({ title: title.trim(), done: false });
     title = "";
   }
 
   async function toggle(id: string, currentDone: boolean) {
-    await todos?.update(id, { done: !currentDone });
+    await todos.update(id, { done: !currentDone });
   }
 
   async function remove(id: string) {
-    await todos?.delete(id);
+    await todos.delete(id);
   }
-
-  onDestroy(() => {
-    pending?.destroy();
-    db?.close();
-  });
 </script>
 
-<!-- All todos (reactive via collection.items) -->
-<p>{todos?.items.length ?? 0} total</p>
+<svelte:boundary>
+  {#snippet pending()}
+    <p>Initializing database...</p>
+  {/snippet}
 
-<!-- Filtered todos (reactive via live query) -->
-<form onsubmit={addTodo}>
-  <input bind:value={title} placeholder="Add a todo..." />
-  <button type="submit">Add</button>
-</form>
+  {#if db.status === "error"}
+    <p>{db.error?.message}</p>
+  {:else}
+    <p>{pending.length} pending</p>
 
-<ul>
-  {#each pending?.items ?? [] as todo (todo.id)}
-    <li>
-      <input type="checkbox" checked={todo.done} onchange={() => toggle(todo.id, todo.done)} />
-      <span>{todo.title}</span>
-      <button onclick={() => remove(todo.id)}>Delete</button>
-    </li>
-  {/each}
-</ul>
+    <form onsubmit={addTodo}>
+      <input bind:value={title} placeholder="Add a todo..." />
+      <button type="submit">Add</button>
+    </form>
 
-<!-- Sync status is reactive -->
-{#if db?.status === "syncing"}
-  <p>Syncing...</p>
-{/if}
+    <ul>
+      {#each pending as todo (todo.id)}
+        <li>
+          <input
+            type="checkbox"
+            checked={todo.done}
+            onchange={() => toggle(todo.id, todo.done)}
+          />
+          <span>{todo.title}</span>
+          <button onclick={() => remove(todo.id)}>Delete</button>
+        </li>
+      {/each}
+    </ul>
 
-<button onclick={() => db?.sync()}>Sync</button>
+    {#if db.syncStatus === "syncing"}
+      <p>Syncing...</p>
+    {/if}
+
+    <button onclick={() => db.sync()}>Sync</button>
+  {/if}
+</svelte:boundary>
 ```
 
 ### Key concepts
 
-- **`createTablinum`** returns a `Promise<Database>` (no Effect boilerplate)
-- **`collection.items`** is a reactive `$state` array of all records in the collection
-- **`.where("field").equals(value).live()`** returns a `LiveQuery` whose `.items` update automatically
-- **Cleanup**: call `.destroy()` on live queries and `.close()` on the database in `onDestroy`
+- **`new Tablinum(config)`** starts initialization immediately and exposes `db.ready`
+- **Async queries are reactive** when used inside `$derived(await ...)`
+- **`db.status`** tracks initialization and terminal state; **`db.syncStatus`** tracks sync activity
+- **`createTablinum(config)`** still exists as a convenience and resolves once `db.ready` completes
 
 ## License
 

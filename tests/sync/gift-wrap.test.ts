@@ -9,7 +9,7 @@ describe("gift wrap", () => {
     Effect.gen(function* () {
       const sk = generateSecretKey();
       const pk = getPublicKey(sk);
-      const handle = createGiftWrapHandle(sk, pk);
+      const handle = createGiftWrapHandle(sk, pk, sk);
 
       const giftWrap = yield* handle.wrap({
         kind: 1,
@@ -35,7 +35,7 @@ describe("gift wrap", () => {
     Effect.gen(function* () {
       const sk = generateSecretKey();
       const pk = getPublicKey(sk);
-      const handle = createGiftWrapHandle(sk, pk);
+      const handle = createGiftWrapHandle(sk, pk, sk);
 
       const rumor = {
         kind: 1,

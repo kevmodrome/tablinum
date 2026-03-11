@@ -1,8 +1,9 @@
-import { Effect, Fiber, Stream } from "effect";
+import { Effect, Fiber, Option, Stream } from "effect";
 import type { CollectionDef, CollectionFields } from "../schema/collection.ts";
 import type { InferRecord } from "../schema/types.ts";
 import type { CollectionHandle } from "../crud/collection-handle.ts";
-import { LiveQuery } from "./live-query.svelte.ts";
+import { ClosedError } from "../errors.ts";
+import { createDeferred } from "./deferred.ts";
 import {
   wrapWhereClause,
   wrapOrderByBuilder,
@@ -11,77 +12,140 @@ import {
 } from "./query.svelte.ts";
 
 export class Collection<C extends CollectionDef<CollectionFields>> {
-  items = $state<ReadonlyArray<InferRecord<C>>>([]);
   error = $state<Error | null>(null);
 
-  #handle: CollectionHandle<C>;
-  #watchFiber: Fiber.Fiber<void, unknown> | null = null;
-  #liveQueries: Set<LiveQuery<unknown>> = new Set();
+  #handle: CollectionHandle<C> | null = null;
+  #ready = createDeferred<void>();
+  #version = $state(0);
+  #watchAbort: AbortController | null = null;
+  #watchFiber: Fiber.Fiber<void, never> | null = null;
 
-  constructor(handle: CollectionHandle<C>) {
+  /** @internal */
+  _bind(handle: CollectionHandle<C>): void {
+    if (this.#handle) return;
     this.#handle = handle;
-
-    // Auto-watch: subscribe to all records, surface errors to this.error
-    const watchEffect = Stream.runForEach(handle.watch(), (records) =>
-      Effect.sync(() => {
-        this.items = records;
-      }),
-    ).pipe(
-      Effect.catch((e) =>
-        Effect.sync(() => {
-          this.error = e instanceof Error ? e : new Error(String(e));
-        }),
-      ),
-    );
-    this.#watchFiber = Effect.runFork(watchEffect);
+    this.error = null;
+    this.#settleReady();
+    this.#startWatch();
   }
 
-  #run = async <R>(effect: Effect.Effect<R, unknown>): Promise<R> => {
-    try {
-      this.error = null;
-      return await Effect.runPromise(effect);
-    } catch (e) {
-      this.error = e instanceof Error ? e : new Error(String(e));
-      throw this.error;
+  /** @internal */
+  _fail(err: Error): void {
+    this.error = err;
+    this.#settleReady(err);
+  }
+
+  #settleReady(err?: Error): void {
+    if (err) {
+      this.#ready.reject(err);
+    } else {
+      this.#ready.resolve();
     }
+  }
+
+  #startWatch() {
+    if (!this.#handle) return;
+    const abort = new AbortController();
+    this.#watchAbort = abort;
+    this.#watchFiber = Effect.runFork(
+      Stream.runForEach(this.#handle.watch(), (_records) =>
+        Effect.sync(() => {
+          if (!abort.signal.aborted) {
+            this.#version++;
+          }
+        }),
+      ).pipe(
+        Effect.catch((e: unknown) =>
+          Effect.sync(() => {
+            if (!abort.signal.aborted) {
+              this.error = e instanceof Error ? e : new Error(String(e));
+            }
+          }),
+        ),
+      ),
+    );
+  }
+
+  #touchVersion = (): void => {
+    void this.#version;
   };
 
-  #onLive = (lq: LiveQuery<unknown>): void => {
-    this.#liveQueries.add(lq);
+  #handleOrThrow = (): CollectionHandle<C> => {
+    if (this.#handle) return this.#handle;
+    throw this.error ?? new ClosedError({ message: "Collection is not ready" });
   };
 
-  add = (data: Omit<InferRecord<C>, "id">): Promise<string> => this.#run(this.#handle.add(data));
+  #run = async <R>(getEffect: () => Effect.Effect<R, unknown>): Promise<R> => {
+    await this.#ready.promise;
+    return Effect.runPromise(getEffect());
+  };
 
-  update = (id: string, data: Partial<Omit<InferRecord<C>, "id">>): Promise<void> =>
-    this.#run(this.#handle.update(id, data));
+  add = (data: Omit<InferRecord<C>, "id">): Promise<string> => {
+    return this.#run(() => this.#handleOrThrow().add(data));
+  };
 
-  delete = (id: string): Promise<void> => this.#run(this.#handle.delete(id));
+  update = (id: string, data: Partial<Omit<InferRecord<C>, "id">>): Promise<void> => {
+    return this.#run(() => this.#handleOrThrow().update(id, data));
+  };
 
-  get = (id: string): Promise<InferRecord<C>> => this.#run(this.#handle.get(id));
+  delete = (id: string): Promise<void> => {
+    return this.#run(() => this.#handleOrThrow().delete(id));
+  };
 
-  first = (): Promise<InferRecord<C> | null> => this.#run(this.#handle.first());
+  get(): Promise<ReadonlyArray<InferRecord<C>>>;
+  get(id: string): Promise<InferRecord<C>>;
+  get(id?: string): Promise<ReadonlyArray<InferRecord<C>> | InferRecord<C>> {
+    if (typeof id === "string") {
+      return this.#run(() => this.#handleOrThrow().get(id));
+    }
+    this.#touchVersion();
+    return this.#run(() =>
+      Stream.runHead(this.#handleOrThrow().watch()).pipe(
+        Effect.map((opt) => Option.getOrElse(opt, () => [] as ReadonlyArray<InferRecord<C>>)),
+      ),
+    );
+  }
 
-  count = (): Promise<number> => this.#run(this.#handle.count());
+  first = (): Promise<InferRecord<C> | null> => {
+    this.#touchVersion();
+    return this.#run(() => Effect.map(this.#handleOrThrow().first(), Option.getOrNull));
+  };
+
+  count = (): Promise<number> => {
+    this.#touchVersion();
+    return this.#run(() => this.#handleOrThrow().count());
+  };
 
   where = (field: string & keyof Omit<InferRecord<C>, "id">): SvelteWhereClause<InferRecord<C>> => {
-    return wrapWhereClause(this.#handle.where(field), this.#onLive);
+    return wrapWhereClause(
+      () => this.#handleOrThrow().where(field),
+      this.#touchVersion,
+      this.#ready.promise,
+    );
   };
 
   orderBy = (
     field: string & keyof Omit<InferRecord<C>, "id">,
   ): SvelteOrderByBuilder<InferRecord<C>> => {
-    return wrapOrderByBuilder(this.#handle.orderBy(field), this.#onLive);
+    return wrapOrderByBuilder(
+      () => this.#handleOrThrow().orderBy(field),
+      this.#touchVersion,
+      this.#ready.promise,
+    );
   };
 
-  /** @internal Called by Database.close() */
-  _destroy(): void {
+  /** @internal */
+  _destroy(reason: Error = new ClosedError({ message: "Collection is closed" })): void {
+    if (this.#watchAbort) {
+      this.#watchAbort.abort();
+      this.#watchAbort = null;
+    }
     if (this.#watchFiber) {
       Effect.runFork(Fiber.interrupt(this.#watchFiber));
       this.#watchFiber = null;
     }
-    for (const lq of this.#liveQueries) {
-      lq.destroy();
-    }
-    this.#liveQueries.clear();
+    this.#handle = null;
+    this.error ??= reason;
+    this.#settleReady(this.error);
   }
 }

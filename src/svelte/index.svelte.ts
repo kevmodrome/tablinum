@@ -1,12 +1,3 @@
-import { Effect, Exit, Scope } from "effect";
-import type { SchemaConfig } from "../schema/types.ts";
-import {
-  createTablinum as coreCreateTablinum,
-  type TablinumConfig,
-} from "../db/create-tablinum.ts";
-import { Database } from "./database.svelte.ts";
-
-// Re-export schema utilities (unchanged)
 export { field } from "../schema/field.ts";
 export { collection } from "../schema/collection.ts";
 export type { CollectionDef, CollectionFields } from "../schema/collection.ts";
@@ -14,8 +5,14 @@ export type { FieldDef, FieldKind } from "../schema/field.ts";
 export type { InferRecord, SchemaConfig } from "../schema/types.ts";
 export type { TablinumConfig } from "../db/create-tablinum.ts";
 export type { SyncStatus } from "../db/database-handle.ts";
+export type { RelayStatus } from "../sync/relay.ts";
 
-// Re-export errors
+export { encodeInvite, decodeInvite } from "../db/invite.ts";
+export type { Invite } from "../db/invite.ts";
+
+export type { EpochKey, EpochKeyInput } from "../db/epoch.ts";
+export type { MemberRecord } from "../db/members.ts";
+
 export {
   ValidationError,
   StorageError,
@@ -26,27 +23,10 @@ export {
   ClosedError,
 } from "../errors.ts";
 
-// Re-export Svelte classes
-export { Database } from "./database.svelte.ts";
+export { Tablinum } from "./tablinum.svelte.ts";
 export { Collection } from "./collection.svelte.ts";
-export { LiveQuery } from "./live-query.svelte.ts";
 export type {
   SvelteQueryBuilder,
   SvelteWhereClause,
   SvelteOrderByBuilder,
 } from "./query.svelte.ts";
-
-export async function createTablinum<S extends SchemaConfig>(
-  config: TablinumConfig<S>,
-): Promise<Database<S>> {
-  const scope = Effect.runSync(Scope.make());
-  try {
-    const handle = await Effect.runPromise(
-      coreCreateTablinum(config).pipe(Effect.provideService(Scope.Scope, scope)),
-    );
-    return new Database(handle, scope) as Database<S>;
-  } catch (e) {
-    await Effect.runPromise(Scope.close(scope, Exit.fail(e)));
-    throw e;
-  }
-}

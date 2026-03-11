@@ -13,9 +13,6 @@ export interface WatchContext {
   readonly replayingRef: Ref.Ref<boolean>;
 }
 
-/**
- * Create a reactive Stream that emits the current result set whenever it changes.
- */
 export function watchCollection<T>(
   ctx: WatchContext,
   storage: IDBStorageHandle,
@@ -24,8 +21,7 @@ export function watchCollection<T>(
   mapRecord?: (record: Record<string, unknown>) => T,
 ): Stream.Stream<ReadonlyArray<T>, StorageError> {
   const query = (): Effect.Effect<ReadonlyArray<T>, StorageError> =>
-    Effect.gen(function* () {
-      const all = yield* storage.getAllRecords(collectionName);
+    Effect.map(storage.getAllRecords(collectionName), (all) => {
       const filtered = all.filter((r) => !r._deleted && (filter ? filter(r) : true));
       return mapRecord ? filtered.map(mapRecord) : (filtered as unknown as ReadonlyArray<T>);
     });
@@ -44,23 +40,17 @@ export function watchCollection<T>(
 
   return Stream.unwrap(
     Effect.gen(function* () {
+      yield* Effect.sleep(0);
       const initial = yield* query();
       return Stream.concat(Stream.make(initial), changes);
     }),
   );
 }
 
-/**
- * Notify subscribers of a change.
- */
 export function notifyChange(ctx: WatchContext, event: ChangeEvent): Effect.Effect<void> {
   return PubSub.publish(ctx.pubsub, event).pipe(Effect.asVoid);
 }
 
-/**
- * Emit a replay-complete notification for all collections that changed.
- * Call after sync replay to trigger batched watch updates.
- */
 export function notifyReplayComplete(
   ctx: WatchContext,
   collections: ReadonlyArray<string>,

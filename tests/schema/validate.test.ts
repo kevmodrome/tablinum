@@ -82,4 +82,15 @@ describe("schema validation", () => {
       expect(result._tag).toBe("Failure");
     }),
   );
+
+  it.effect("partial validator rejects invalid field types", () =>
+    Effect.gen(function* () {
+      const def = collection("todos", {
+        done: field.boolean(),
+      });
+      const validate = buildPartialValidator("todos", def);
+      const result = yield* Effect.result(validate({ done: "nope" }));
+      expect(result._tag).toBe("Failure");
+    }),
+  );
 });

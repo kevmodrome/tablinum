@@ -1,6 +1,6 @@
 import { describe, expect } from "vitest";
 import { it } from "@effect/vitest";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import { field } from "../../src/schema/field.ts";
 import { collection } from "../../src/schema/collection.ts";
 import { createTablinum } from "../../src/db/create-tablinum.ts";
@@ -47,8 +47,8 @@ describe("createTablinum", () => {
 
       // First
       const first = yield* col.first();
-      expect(first).not.toBeNull();
-      expect(first!.id).toBe(id);
+      expect(Option.isSome(first)).toBe(true);
+      expect(Option.getOrThrow(first).id).toBe(id);
 
       // Delete
       yield* col.delete(id);
@@ -167,8 +167,8 @@ describe("createTablinum", () => {
       expect(count).toBe(1);
 
       const first = yield* where.equals(true).first();
-      expect(first).not.toBeNull();
-      expect(first!.title).toBe("B");
+      expect(Option.isSome(first)).toBe(true);
+      expect(Option.getOrThrow(first).title).toBe("B");
     }),
   );
 });

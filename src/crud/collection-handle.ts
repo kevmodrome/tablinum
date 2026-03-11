@@ -1,4 +1,4 @@
-import { Effect, Stream } from "effect";
+import { Effect, Option, Stream } from "effect";
 import type { CollectionDef, CollectionFields } from "../schema/collection.ts";
 import type { InferRecord } from "../schema/types.ts";
 import type { RecordValidator, PartialValidator } from "../schema/validate.ts";
@@ -8,7 +8,7 @@ import { NotFoundError, StorageError, ValidationError } from "../errors.ts";
 import { uuidv7 } from "../utils/uuid.ts";
 import type { WatchContext } from "./watch.ts";
 import { notifyChange, watchCollection } from "./watch.ts";
-import type { WhereClause, OrderByBuilder } from "./query-builder.ts";
+import type { WhereClause, QueryBuilder } from "./query-builder.ts";
 import { createWhereClause, createOrderByBuilder } from "./query-builder.ts";
 
 export interface CollectionHandle<C extends CollectionDef<CollectionFields>> {
@@ -21,23 +21,23 @@ export interface CollectionHandle<C extends CollectionDef<CollectionFields>> {
   ) => Effect.Effect<void, ValidationError | StorageError | NotFoundError>;
   readonly delete: (id: string) => Effect.Effect<void, StorageError | NotFoundError>;
   readonly get: (id: string) => Effect.Effect<InferRecord<C>, StorageError | NotFoundError>;
-  readonly first: () => Effect.Effect<InferRecord<C> | null, StorageError>;
+  readonly first: () => Effect.Effect<Option.Option<InferRecord<C>>, StorageError>;
   readonly count: () => Effect.Effect<number, StorageError>;
   readonly watch: () => Stream.Stream<ReadonlyArray<InferRecord<C>>, StorageError>;
   readonly where: (field: string & keyof Omit<InferRecord<C>, "id">) => WhereClause<InferRecord<C>>;
   readonly orderBy: (
     field: string & keyof Omit<InferRecord<C>, "id">,
-  ) => OrderByBuilder<InferRecord<C>>;
+  ) => QueryBuilder<InferRecord<C>>;
 }
 
 function mapRecord<C extends CollectionDef<CollectionFields>>(
   record: Record<string, unknown>,
 ): InferRecord<C> {
-  const { _deleted, _updatedAt, ...fields } = record;
+  const { _deleted, _updatedAt, _author, ...fields } = record;
   return fields as InferRecord<C>;
 }
 
-export type OnWriteCallback = (event: StoredEvent) => Effect.Effect<void>;
+export type OnWriteCallback = (event: StoredEvent) => Effect.Effect<void, StorageError>;
 
 export function createCollectionHandle<C extends CollectionDef<CollectionFields>>(
   def: C,
@@ -49,6 +49,18 @@ export function createCollectionHandle<C extends CollectionDef<CollectionFields>
   onWrite?: OnWriteCallback,
 ): CollectionHandle<C> {
   const collectionName = def.name;
+
+  const commitEvent = (event: StoredEvent): Effect.Effect<void, StorageError> =>
+    Effect.gen(function* () {
+      yield* storage.putEvent(event);
+      yield* applyEvent(storage, event);
+      if (onWrite) yield* onWrite(event);
+      yield* notifyChange(watchCtx, {
+        collection: collectionName,
+        recordId: event.recordId,
+        kind: event.kind,
+      });
+    });
 
   const handle: CollectionHandle<C> = {
     add: (data) =>
@@ -65,14 +77,7 @@ export function createCollectionHandle<C extends CollectionDef<CollectionFields>
           data: fullRecord as unknown as Record<string, unknown>,
           createdAt: Date.now(),
         };
-        yield* storage.putEvent(event);
-        yield* applyEvent(storage, event);
-        if (onWrite) yield* onWrite(event);
-        yield* notifyChange(watchCtx, {
-          collection: collectionName,
-          recordId: id,
-          kind: "create",
-        });
+        yield* commitEvent(event);
         return id;
       }),
 
@@ -86,7 +91,7 @@ export function createCollectionHandle<C extends CollectionDef<CollectionFields>
           });
         }
         yield* partialValidator(data);
-        const { _deleted, _updatedAt, ...existingFields } = existing;
+        const { _deleted, _updatedAt, _author, ...existingFields } = existing;
         const merged = { ...existingFields, ...data, id };
         yield* validator(merged);
 
@@ -98,14 +103,7 @@ export function createCollectionHandle<C extends CollectionDef<CollectionFields>
           data: merged as Record<string, unknown>,
           createdAt: Date.now(),
         };
-        yield* storage.putEvent(event);
-        yield* applyEvent(storage, event);
-        if (onWrite) yield* onWrite(event);
-        yield* notifyChange(watchCtx, {
-          collection: collectionName,
-          recordId: id,
-          kind: "update",
-        });
+        yield* commitEvent(event);
       }),
 
     delete: (id) =>
@@ -126,14 +124,14 @@ export function createCollectionHandle<C extends CollectionDef<CollectionFields>
           data: null,
           createdAt: Date.now(),
         };
-        yield* storage.putEvent(event);
-        yield* applyEvent(storage, event);
-        if (onWrite) yield* onWrite(event);
-        yield* notifyChange(watchCtx, {
-          collection: collectionName,
-          recordId: id,
-          kind: "delete",
-        });
+        yield* commitEvent(event);
+
+        const oldEvents = yield* storage.getEventsByRecord(collectionName, id);
+        yield* Effect.forEach(
+          oldEvents.filter((e) => e.id !== event.id),
+          (e) => storage.deleteEvent(e.id),
+          { discard: true },
+        );
       }),
 
     get: (id) =>
@@ -149,17 +147,16 @@ export function createCollectionHandle<C extends CollectionDef<CollectionFields>
       }),
 
     first: () =>
-      Effect.gen(function* () {
-        const all = yield* storage.getAllRecords(collectionName);
+      Effect.map(storage.getAllRecords(collectionName), (all) => {
         const found = all.find((r) => !r._deleted);
-        return found ? mapRecord<C>(found) : null;
+        return found ? Option.some(mapRecord<C>(found)) : Option.none();
       }),
 
     count: () =>
-      Effect.gen(function* () {
-        const all = yield* storage.getAllRecords(collectionName);
-        return all.filter((r) => !r._deleted).length;
-      }),
+      Effect.map(
+        storage.getAllRecords(collectionName),
+        (all) => all.filter((r) => !r._deleted).length,
+      ),
 
     watch: () =>
       watchCollection<InferRecord<C>>(watchCtx, storage, collectionName, undefined, mapRecord),

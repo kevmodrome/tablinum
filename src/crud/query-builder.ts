@@ -1,13 +1,9 @@
-import { Effect, Ref, Stream } from "effect";
+import { Effect, Option, Ref, Stream } from "effect";
 import type { IDBStorageHandle } from "../storage/idb.ts";
 import type { StorageError, ValidationError } from "../errors.ts";
 import { ValidationError as VE } from "../errors.ts";
 import type { CollectionDef, CollectionFields } from "../schema/collection.ts";
 import type { WatchContext } from "./watch.ts";
-
-// ---------------------------------------------------------------------------
-// Query plan (internal)
-// ---------------------------------------------------------------------------
 
 interface QueryPlan {
   readonly fieldName?: string | undefined;
@@ -24,10 +20,6 @@ function emptyPlan(): QueryPlan {
   return { filters: [] };
 }
 
-// ---------------------------------------------------------------------------
-// Query context (shared deps for execution)
-// ---------------------------------------------------------------------------
-
 interface QueryContext {
   readonly storage: IDBStorageHandle;
   readonly watchCtx: WatchContext;
@@ -36,16 +28,11 @@ interface QueryContext {
   readonly mapRecord: (record: Record<string, unknown>) => unknown;
 }
 
-// ---------------------------------------------------------------------------
-// Execution
-// ---------------------------------------------------------------------------
-
 function executeQuery<T>(
   ctx: QueryContext,
   plan: QueryPlan,
 ): Effect.Effect<ReadonlyArray<T>, StorageError | ValidationError> {
   return Effect.gen(function* () {
-    // Validate field references
     if (plan.fieldName) {
       const fieldDef = ctx.def.fields[plan.fieldName];
       if (!fieldDef) {
@@ -62,7 +49,6 @@ function executeQuery<T>(
       }
     }
 
-    // Fetch records — use index if available
     let results: Record<string, unknown>[];
     if (plan.indexQuery && ctx.def.indices.includes(plan.indexQuery.field)) {
       if (plan.indexQuery.type === "value") {
@@ -87,7 +73,6 @@ function executeQuery<T>(
       ctx.def.indices.includes(plan.orderBy.field) &&
       plan.filters.length === 0
     ) {
-      // Use index for sorting when no filters need to be applied
       results = [
         ...(yield* ctx.storage.getAllSorted(
           ctx.collectionName,
@@ -99,15 +84,12 @@ function executeQuery<T>(
       results = [...(yield* ctx.storage.getAllRecords(ctx.collectionName))];
     }
 
-    // Filter deleted records
     results = results.filter((r) => !r._deleted);
 
-    // Apply filter predicates
     for (const f of plan.filters) {
       results = results.filter(f);
     }
 
-    // Sort (if not already sorted by IDB)
     if (plan.orderBy) {
       const alreadySorted =
         ctx.def.indices.includes(plan.orderBy.field) &&
@@ -124,17 +106,14 @@ function executeQuery<T>(
       }
     }
 
-    // Offset
     if (plan.offset) {
       results = results.slice(plan.offset);
     }
 
-    // Limit
     if (plan.limit !== null && plan.limit !== undefined) {
       results = results.slice(0, plan.limit);
     }
 
-    // Map to user-facing type
     return results.map(ctx.mapRecord) as ReadonlyArray<T>;
   });
 }
@@ -165,10 +144,6 @@ function watchQuery<T>(
   );
 }
 
-// ---------------------------------------------------------------------------
-// Public interfaces
-// ---------------------------------------------------------------------------
-
 export interface WhereClause<T> {
   readonly equals: (value: string | number | boolean) => QueryBuilder<T>;
   readonly above: (value: number) => QueryBuilder<T>;
@@ -192,27 +167,12 @@ export interface QueryBuilder<T> {
   readonly offset: (n: number) => QueryBuilder<T>;
   readonly limit: (n: number) => QueryBuilder<T>;
   readonly get: () => Effect.Effect<ReadonlyArray<T>, StorageError | ValidationError>;
-  readonly first: () => Effect.Effect<T | null, StorageError | ValidationError>;
+  readonly first: () => Effect.Effect<Option.Option<T>, StorageError | ValidationError>;
   readonly count: () => Effect.Effect<number, StorageError | ValidationError>;
   readonly watch: () => Stream.Stream<ReadonlyArray<T>, StorageError | ValidationError>;
 }
 
-export interface OrderByBuilder<T> {
-  readonly reverse: () => OrderByBuilder<T>;
-  readonly offset: (n: number) => OrderByBuilder<T>;
-  readonly limit: (n: number) => OrderByBuilder<T>;
-  readonly get: () => Effect.Effect<ReadonlyArray<T>, StorageError | ValidationError>;
-  readonly first: () => Effect.Effect<T | null, StorageError | ValidationError>;
-  readonly count: () => Effect.Effect<number, StorageError | ValidationError>;
-  readonly watch: () => Stream.Stream<ReadonlyArray<T>, StorageError | ValidationError>;
-}
-
-// Keep for backwards compat
-export type QueryExecutor<T> = QueryBuilder<T>;
-
-// ---------------------------------------------------------------------------
-// Builders
-// ---------------------------------------------------------------------------
+export type OrderByBuilder<T> = QueryBuilder<T>;
 
 function makeQueryBuilder<T>(ctx: QueryContext, plan: QueryPlan): QueryBuilder<T> {
   return {
@@ -238,51 +198,13 @@ function makeQueryBuilder<T>(ctx: QueryContext, plan: QueryPlan): QueryBuilder<T
     limit: (n) => makeQueryBuilder(ctx, { ...plan, limit: n }),
     get: () => executeQuery<T>(ctx, plan),
     first: () =>
-      Effect.gen(function* () {
-        const limitedPlan = { ...plan, limit: 1 };
-        const results = yield* executeQuery<T>(ctx, limitedPlan);
-        return results[0] ?? null;
-      }),
-    count: () =>
-      Effect.gen(function* () {
-        const results = yield* executeQuery<T>(ctx, plan);
-        return results.length;
-      }),
+      Effect.map(executeQuery<T>(ctx, { ...plan, limit: 1 }), (results) =>
+        results.length > 0 ? Option.some(results[0] as T) : Option.none(),
+      ),
+    count: () => Effect.map(executeQuery<T>(ctx, plan), (results) => results.length),
     watch: () => watchQuery<T>(ctx, plan),
   };
 }
-
-function makeOrderByBuilder<T>(ctx: QueryContext, plan: QueryPlan): OrderByBuilder<T> {
-  return {
-    reverse: () =>
-      makeOrderByBuilder(ctx, {
-        ...plan,
-        orderBy: {
-          field: plan.orderBy!.field,
-          direction: plan.orderBy!.direction === "desc" ? "asc" : "desc",
-        },
-      }),
-    offset: (n) => makeOrderByBuilder(ctx, { ...plan, offset: n }),
-    limit: (n) => makeOrderByBuilder(ctx, { ...plan, limit: n }),
-    get: () => executeQuery<T>(ctx, plan),
-    first: () =>
-      Effect.gen(function* () {
-        const limitedPlan = { ...plan, limit: 1 };
-        const results = yield* executeQuery<T>(ctx, limitedPlan);
-        return results[0] ?? null;
-      }),
-    count: () =>
-      Effect.gen(function* () {
-        const results = yield* executeQuery<T>(ctx, plan);
-        return results.length;
-      }),
-    watch: () => watchQuery<T>(ctx, plan),
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Factory functions (called by CollectionHandle)
-// ---------------------------------------------------------------------------
 
 export function createWhereClause<T>(
   storage: IDBStorageHandle,
@@ -294,7 +216,6 @@ export function createWhereClause<T>(
 ): WhereClause<T> {
   const ctx: QueryContext = { storage, watchCtx, collectionName, def, mapRecord };
   const fieldDef = def.fields[fieldName];
-  // IDB only supports string/number/Date/Array keys — not booleans
   const isIndexed =
     def.indices.includes(fieldName) &&
     fieldDef !== null &&
@@ -404,11 +325,11 @@ export function createOrderByBuilder<T>(
   def: CollectionDef<CollectionFields>,
   fieldName: string,
   mapRecord: (record: Record<string, unknown>) => T,
-): OrderByBuilder<T> {
+): QueryBuilder<T> {
   const ctx: QueryContext = { storage, watchCtx, collectionName, def, mapRecord };
   const plan: QueryPlan = {
     ...emptyPlan(),
     orderBy: { field: fieldName, direction: "asc" },
   };
-  return makeOrderByBuilder(ctx, plan);
+  return makeQueryBuilder(ctx, plan);
 }

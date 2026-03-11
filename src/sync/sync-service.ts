@@ -1,5 +1,8 @@
-import { Effect, Ref } from "effect";
+import { Effect, Option, Ref, Schedule, Scope } from "effect";
 import type { NostrEvent } from "nostr-tools/pure";
+import type { Filter } from "nostr-tools/filter";
+import { unwrapEvent } from "nostr-tools/nip59";
+import { GiftWrap } from "nostr-tools/kinds";
 import type { IDBStorageHandle, StoredEvent, StoredGiftWrap } from "../storage/idb.ts";
 import { applyEvent } from "../storage/records-store.ts";
 import type { GiftWrapHandle } from "./gift-wrap.ts";
@@ -10,11 +13,16 @@ import { reconcileWithRelay } from "./negentropy.ts";
 import type { WatchContext } from "../crud/watch.ts";
 import { notifyChange, notifyReplayComplete } from "../crud/watch.ts";
 import { CryptoError, RelayError, StorageError, SyncError } from "../errors.ts";
+import type { EpochStore } from "../db/epoch.ts";
+import { EpochId, getAllPublicKeys, addEpoch, createEpochKey } from "../db/epoch.ts";
+import { parseRotationEvent, parseRemovalNotice } from "../db/key-rotation.ts";
+import type { RemovalNotice } from "../db/key-rotation.ts";
 
 export interface SyncHandle {
   readonly sync: () => Effect.Effect<void, SyncError | RelayError | CryptoError | StorageError>;
   readonly publishLocal: (giftWrap: StoredGiftWrap) => Effect.Effect<void>;
   readonly startSubscription: () => Effect.Effect<void>;
+  readonly addEpochSubscription: (publicKey: string) => Effect.Effect<void>;
 }
 
 export function createSyncHandle(
@@ -25,54 +33,135 @@ export function createSyncHandle(
   syncStatus: SyncStatusHandle,
   watchCtx: WatchContext,
   relayUrls: readonly string[],
-  publicKey: string,
+  knownCollections: ReadonlySet<string>,
+  epochStore: EpochStore,
+  personalPrivateKey: Uint8Array,
+  personalPublicKey: string,
+  scope: Scope.Scope,
   onSyncError?: ((error: unknown) => void) | undefined,
+  onNewAuthor?: ((pubkey: string) => void) | undefined,
+  onRemoved?: ((notice: RemovalNotice) => void) | undefined,
+  onMembersChanged?: (() => void) | undefined,
 ): SyncHandle {
-  // Process a single remote gift wrap: store, unwrap, apply event
+  const getSubscriptionPubKeys = (): string[] => {
+    return getAllPublicKeys(epochStore);
+  };
+
+  const notifyCollectionUpdated = (collection: string) =>
+    notifyChange(watchCtx, {
+      collection,
+      recordId: "",
+      kind: "create",
+    });
+
+  const forkHandled = (effect: Effect.Effect<void>) => {
+    Effect.runFork(
+      effect.pipe(
+        Effect.tapError((e) => Effect.sync(() => onSyncError?.(e))),
+        Effect.ignore,
+        Effect.forkIn(scope),
+      ),
+    );
+  };
+
+  let autoFlushActive = false;
+
+  const autoFlushEffect = Effect.gen(function* () {
+    const size = yield* publishQueue.size();
+    if (size === 0) return;
+    yield* syncStatus.set("syncing");
+    yield* publishQueue.flush(relayUrls);
+    const remaining = yield* publishQueue.size();
+    if (remaining > 0) yield* Effect.fail("pending");
+  }).pipe(
+    Effect.ensuring(syncStatus.set("idle")),
+    Effect.retry({ schedule: Schedule.exponential(5000).pipe(Schedule.jittered), times: 10 }),
+    Effect.ignore,
+  );
+
+  const scheduleAutoFlush = () => {
+    if (autoFlushActive) return;
+    autoFlushActive = true;
+    forkHandled(
+      autoFlushEffect.pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            autoFlushActive = false;
+          }),
+        ),
+      ),
+    );
+  };
+
+  const shouldRejectWrite = (authorPubkey: string): Effect.Effect<boolean, StorageError> =>
+    Effect.gen(function* () {
+      const memberRecord = yield* storage.getRecord("_members", authorPubkey);
+      if (!memberRecord) return false;
+      return !!memberRecord.removedAt;
+    });
+
   const processGiftWrap = (
     remoteGw: NostrEvent,
   ): Effect.Effect<string | null, StorageError | CryptoError> =>
     Effect.gen(function* () {
-      // Skip if we already have this gift wrap
       const existing = yield* storage.getGiftWrap(remoteGw.id);
       if (existing) return null;
 
-      // Store gift wrap
-      yield* storage.putGiftWrap({
-        id: remoteGw.id,
-        event: remoteGw as unknown as Record<string, unknown>,
-        createdAt: remoteGw.created_at,
-      });
-
-      // Unwrap to get rumor
       const unwrapResult = yield* Effect.result(giftWrapHandle.unwrap(remoteGw));
-      if (unwrapResult._tag === "Failure") return null;
+      if (unwrapResult._tag === "Failure") {
+        yield* storage.putGiftWrap({ id: remoteGw.id, createdAt: remoteGw.created_at });
+        return null;
+      }
 
       const rumor = unwrapResult.success;
 
-      // Parse the rumor content and d-tag
       const dTag = rumor.tags.find((t: string[]) => t[0] === "d")?.[1];
-      if (!dTag) return null;
+      if (!dTag) {
+        yield* storage.putGiftWrap({ id: remoteGw.id, createdAt: remoteGw.created_at });
+        return null;
+      }
 
       const colonIdx = dTag.indexOf(":");
-      if (colonIdx === -1) return null;
+      if (colonIdx === -1) {
+        yield* storage.putGiftWrap({ id: remoteGw.id, createdAt: remoteGw.created_at });
+        return null;
+      }
 
       const collectionName = dTag.substring(0, colonIdx);
       const recordId = dTag.substring(colonIdx + 1);
 
+      if (!knownCollections.has(collectionName)) {
+        yield* storage.putGiftWrap({ id: remoteGw.id, createdAt: remoteGw.created_at });
+        return null;
+      }
+
+      if (rumor.pubkey) {
+        const reject = yield* shouldRejectWrite(rumor.pubkey);
+        if (reject) {
+          yield* storage.putGiftWrap({ id: remoteGw.id, createdAt: remoteGw.created_at });
+          return null;
+        }
+      }
+
       let data: Record<string, unknown> | null = null;
       let kind: "create" | "update" | "delete" = "update";
 
-      try {
-        const parsed = JSON.parse(rumor.content);
-        if (parsed === null || parsed._deleted) {
-          kind = "delete";
-        } else {
-          data = parsed;
-        }
-      } catch {
+      const parsed = yield* Effect.try({
+        try: () => JSON.parse(rumor.content) as Record<string, unknown> | null,
+        catch: () => undefined,
+      }).pipe(Effect.orElseSucceed(() => undefined));
+      if (parsed === undefined) {
+        yield* storage.putGiftWrap({ id: remoteGw.id, createdAt: remoteGw.created_at });
         return null;
       }
+
+      if (parsed === null || parsed._deleted) {
+        kind = "delete";
+      } else {
+        data = parsed;
+      }
+
+      const author: string | undefined = rumor.pubkey || undefined;
 
       const event: StoredEvent = {
         id: rumor.id,
@@ -81,14 +170,180 @@ export function createSyncHandle(
         kind,
         data,
         createdAt: rumor.created_at * 1000,
+        author,
       };
 
+      yield* storage.putGiftWrap({
+        id: remoteGw.id,
+        eventId: event.id,
+        createdAt: remoteGw.created_at,
+      });
       yield* storage.putEvent(event);
-      yield* applyEvent(storage, event);
+      const didApply = yield* applyEvent(storage, event);
+
+      if (kind === "delete" && didApply) {
+        const oldEvents = yield* storage.getEventsByRecord(collectionName, recordId);
+        yield* Effect.forEach(
+          oldEvents.filter((e) => e.id !== event.id),
+          (e) => storage.deleteEvent(e.id),
+          { discard: true },
+        );
+      }
+
+      if (author && onNewAuthor) {
+        onNewAuthor(author);
+      }
+
       return collectionName;
     });
 
-  return {
+  const processRealtimeGiftWrap = (remoteGw: NostrEvent): Effect.Effect<void> =>
+    Effect.gen(function* () {
+      const collection = yield* processGiftWrap(remoteGw).pipe(Effect.orElseSucceed(() => null));
+      if (collection) {
+        yield* notifyCollectionUpdated(collection);
+      }
+    });
+
+  const processRotationGiftWrap = (
+    remoteGw: NostrEvent,
+  ): Effect.Effect<boolean, StorageError | CryptoError> =>
+    Effect.gen(function* () {
+      const unwrapResult = yield* Effect.result(
+        Effect.try({
+          try: () => unwrapEvent(remoteGw, personalPrivateKey),
+          catch: (e) =>
+            new CryptoError({
+              message: `Rotation unwrap failed: ${e instanceof Error ? e.message : String(e)}`,
+              cause: e,
+            }),
+        }),
+      );
+      if (unwrapResult._tag === "Failure") return false;
+
+      const rumor = unwrapResult.success;
+      const dTag = rumor.tags.find((t: string[]) => t[0] === "d")?.[1];
+      if (!dTag) return false;
+
+      const removalNoticeOpt = parseRemovalNotice(rumor.content, dTag);
+      if (Option.isSome(removalNoticeOpt)) {
+        if (onRemoved) onRemoved(removalNoticeOpt.value);
+        return true;
+      }
+
+      const rotationDataOpt = parseRotationEvent(rumor.content, dTag);
+      if (Option.isNone(rotationDataOpt)) return false;
+      const rotationData = rotationDataOpt.value;
+
+      if (epochStore.epochs.has(rotationData.epochId)) return false;
+
+      const epoch = createEpochKey(
+        rotationData.epochId,
+        rotationData.epochKey,
+        rumor.pubkey || "",
+        rotationData.parentEpoch,
+      );
+      addEpoch(epochStore, epoch);
+      epochStore.currentEpochId = epoch.id;
+
+      let membersChanged = false;
+      for (const removedPubkey of rotationData.removedMembers) {
+        const memberRecord = yield* storage.getRecord("_members", removedPubkey);
+        if (memberRecord && !memberRecord.removedAt) {
+          yield* storage.putRecord("_members", {
+            ...memberRecord,
+            removedAt: Date.now(),
+            removedInEpoch: epoch.id,
+          });
+          yield* notifyChange(watchCtx, {
+            collection: "_members",
+            recordId: removedPubkey,
+            kind: "update",
+          });
+          membersChanged = true;
+        }
+      }
+      if (membersChanged && onMembersChanged) onMembersChanged();
+
+      yield* handle.addEpochSubscription(epoch.publicKey);
+
+      return true;
+    });
+
+  const subscribeAcrossRelays = (
+    filter: Filter,
+    onEvent: (event: NostrEvent) => Effect.Effect<void>,
+  ): Effect.Effect<void> =>
+    Effect.forEach(
+      relayUrls,
+      (url) =>
+        Effect.gen(function* () {
+          yield* relay
+            .subscribe(filter, url, (event) => {
+              forkHandled(onEvent(event));
+            })
+            .pipe(
+              Effect.tapError((err) => Effect.sync(() => onSyncError?.(err))),
+              Effect.ignore,
+            );
+        }),
+      { discard: true },
+    );
+
+  const syncRelay = (
+    url: string,
+    pubKeys: ReadonlyArray<string>,
+    changedCollections: Set<string>,
+  ): Effect.Effect<void, StorageError> =>
+    Effect.gen(function* () {
+      const reconcileResult = yield* Effect.result(
+        reconcileWithRelay(storage, relay, url, Array.from(pubKeys)),
+      );
+      if (reconcileResult._tag === "Failure") {
+        onSyncError?.(reconcileResult.failure);
+        return;
+      }
+
+      const { haveIds, needIds } = reconcileResult.success;
+
+      if (needIds.length > 0) {
+        const fetched = yield* relay.fetchEvents(needIds, url).pipe(
+          Effect.tapError((err) => Effect.sync(() => onSyncError?.(err))),
+          Effect.orElseSucceed(() => [] as NostrEvent[]),
+        );
+        yield* Effect.forEach(
+          fetched,
+          (remoteGw) =>
+            Effect.gen(function* () {
+              const collection = yield* processGiftWrap(remoteGw).pipe(
+                Effect.orElseSucceed(() => null),
+              );
+              if (collection) changedCollections.add(collection);
+            }),
+          { discard: true },
+        );
+      }
+
+      if (haveIds.length > 0) {
+        yield* Effect.forEach(
+          haveIds,
+          (id) =>
+            Effect.gen(function* () {
+              const gw = yield* storage.getGiftWrap(id);
+              if (!gw?.event) return;
+
+              yield* relay.publish(gw.event, [url]).pipe(
+                Effect.andThen(storage.stripGiftWrapBlob(id)),
+                Effect.tapError((err) => Effect.sync(() => onSyncError?.(err))),
+                Effect.ignore,
+              );
+            }),
+          { discard: true },
+        );
+      }
+    });
+
+  const handle: SyncHandle = {
     sync: () =>
       Effect.gen(function* () {
         yield* syncStatus.set("syncing");
@@ -96,88 +351,65 @@ export function createSyncHandle(
 
         const changedCollections = new Set<string>();
 
-        try {
-          for (const url of relayUrls) {
-            const reconcileResult = yield* Effect.result(
-              reconcileWithRelay(storage, relay, url, publicKey),
-            );
+        yield* Effect.gen(function* () {
+          const pubKeys = getSubscriptionPubKeys();
+          yield* Effect.forEach(relayUrls, (url) => syncRelay(url, pubKeys, changedCollections), {
+            discard: true,
+          });
 
-            if (reconcileResult._tag === "Failure") continue;
-
-            const { haveIds, needIds } = reconcileResult.success;
-
-            // Download missing gift wraps
-            if (needIds.length > 0) {
-              const fetchResult = yield* Effect.result(relay.fetchEvents(needIds, url));
-
-              if (fetchResult._tag === "Success") {
-                for (const remoteGw of fetchResult.success) {
-                  const result = yield* Effect.result(processGiftWrap(remoteGw));
-                  if (result._tag === "Success" && result.success) {
-                    changedCollections.add(result.success);
-                  }
-                }
-              }
-            }
-
-            // Upload gift wraps the relay is missing
-            if (haveIds.length > 0) {
-              for (const id of haveIds) {
-                const gw = yield* storage.getGiftWrap(id);
-                if (gw) {
-                  yield* Effect.result(relay.publish(gw.event as unknown as NostrEvent, [url]));
-                }
-              }
-            }
-          }
-
-          // Flush pending publications
-          yield* Effect.result(publishQueue.flush(relayUrls));
-        } finally {
-          yield* notifyReplayComplete(watchCtx, [...changedCollections]);
-          yield* syncStatus.set("idle");
-        }
+          yield* publishQueue.flush(relayUrls).pipe(Effect.ignore);
+        }).pipe(
+          Effect.ensuring(
+            Effect.gen(function* () {
+              yield* notifyReplayComplete(watchCtx, [...changedCollections]);
+              yield* syncStatus.set("idle");
+            }),
+          ),
+        );
       }),
 
     publishLocal: (giftWrap) =>
       Effect.gen(function* () {
-        const result = yield* Effect.result(
-          relay.publish(giftWrap.event as unknown as NostrEvent, relayUrls),
+        if (!giftWrap.event) return;
+        yield* relay.publish(giftWrap.event, relayUrls).pipe(
+          Effect.tapError(() =>
+            storage
+              .putGiftWrap(giftWrap)
+              .pipe(
+                Effect.andThen(publishQueue.enqueue(giftWrap.id)),
+                Effect.andThen(Effect.sync(() => scheduleAutoFlush())),
+              ),
+          ),
+          Effect.tapError((err) => Effect.sync(() => onSyncError?.(err))),
+          Effect.ignore,
         );
-        if (result._tag === "Failure") {
-          yield* publishQueue.enqueue(giftWrap.id);
-          console.error("[tablinum:publishLocal] relay error:", result.failure);
-          if (onSyncError) onSyncError(result.failure);
-        }
       }),
 
     startSubscription: () =>
       Effect.gen(function* () {
-        for (const url of relayUrls) {
-          const subResult = yield* Effect.result(
-            relay.subscribe({ kinds: [1059], "#p": [publicKey] }, url, (evt: NostrEvent) => {
-              // Process incoming gift wrap in a fire-and-forget fiber
-              Effect.runFork(
-                Effect.gen(function* () {
-                  const result = yield* Effect.result(processGiftWrap(evt));
-                  if (result._tag === "Success" && result.success) {
-                    yield* notifyChange(watchCtx, {
-                      collection: result.success,
-                      recordId: "",
-                      kind: "create",
-                    });
-                  }
-                }),
-              );
-            }),
+        const pubKeys = getSubscriptionPubKeys();
+        yield* subscribeAcrossRelays({ kinds: [GiftWrap], "#p": pubKeys }, processRealtimeGiftWrap);
+
+        if (!pubKeys.includes(personalPublicKey)) {
+          yield* subscribeAcrossRelays({ kinds: [GiftWrap], "#p": [personalPublicKey] }, (event) =>
+            Effect.result(processRotationGiftWrap(event)).pipe(Effect.asVoid),
           );
-          if (subResult._tag === "Failure") {
-            console.error("[tablinum:subscribe] failed for", url, subResult.failure);
-            if (onSyncError) onSyncError(subResult.failure);
-          } else {
-            console.log("[tablinum:subscribe] listening on", url);
-          }
         }
       }),
+
+    addEpochSubscription: (publicKey: string) =>
+      subscribeAcrossRelays({ kinds: [GiftWrap], "#p": [publicKey] }, processRealtimeGiftWrap),
   };
+
+  forkHandled(
+    publishQueue.size().pipe(
+      Effect.flatMap((size) =>
+        Effect.sync(() => {
+          if (size > 0) scheduleAutoFlush();
+        }),
+      ),
+    ),
+  );
+
+  return handle;
 }
