@@ -313,6 +313,10 @@ export const TablinumLive = Layer.effect(
       sync: () => ensureSyncOpen(syncHandle.sync()),
       getSyncStatus: () => syncStatus.get(),
       subscribeSyncStatus: (callback) => syncStatus.subscribe(callback),
+      pendingCount: () => publishQueue.size(),
+      subscribePendingCount: (callback) => publishQueue.subscribe(callback),
+      getRelayStatus: () => relay.getStatus(),
+      subscribeRelayStatus: (callback) => relay.subscribeStatus(callback),
 
       addMember: (pubkey) =>
         ensureOpen(

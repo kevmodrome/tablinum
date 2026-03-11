@@ -11,6 +11,7 @@ import type {
 } from "../errors.ts";
 import type { Invite } from "./invite.ts";
 import type { MemberRecord } from "./members.ts";
+import type { RelayStatus } from "../sync/relay.ts";
 
 export type SyncStatus = "idle" | "syncing";
 
@@ -25,6 +26,10 @@ export interface DatabaseHandle<S extends SchemaConfig> {
   readonly sync: () => Effect.Effect<void, SyncError | RelayError | CryptoError | StorageError>;
   readonly getSyncStatus: () => Effect.Effect<SyncStatus>;
   readonly subscribeSyncStatus: (callback: (status: SyncStatus) => void) => () => void;
+  readonly pendingCount: () => Effect.Effect<number>;
+  readonly subscribePendingCount: (callback: (count: number) => void) => () => void;
+  readonly getRelayStatus: () => RelayStatus;
+  readonly subscribeRelayStatus: (callback: (status: RelayStatus) => void) => () => void;
   readonly addMember: (
     pubkey: string,
   ) => Effect.Effect<void, ValidationError | StorageError | CryptoError>;

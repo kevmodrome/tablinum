@@ -4,6 +4,10 @@ import type { NostrEvent } from "nostr-tools/pure";
 import type { Filter } from "nostr-tools/filter";
 import { RelayError } from "../errors.ts";
 
+export interface RelayStatus {
+  readonly connectedUrls: ReadonlyArray<string>;
+}
+
 export interface RelayHandle {
   readonly publish: (event: NostrEvent, urls: readonly string[]) => Effect.Effect<void, RelayError>;
   readonly fetchEvents: (
@@ -23,6 +27,8 @@ export interface RelayHandle {
     msgHex: string,
   ) => Effect.Effect<{ msgHex: string | null; haveIds: string[]; needIds: string[] }, RelayError>;
   readonly closeAll: () => Effect.Effect<void>;
+  readonly getStatus: () => RelayStatus;
+  readonly subscribeStatus: (callback: (status: RelayStatus) => void) => () => void;
 }
 
 export type NegFrame = readonly ["NEG-MSG", string, string] | readonly ["NEG-ERR", string, string];
@@ -70,6 +76,28 @@ export function createRelayHandle(): Effect.Effect<RelayHandle, never, Scope.Sco
         ),
     });
 
+    const connectedUrls = new Set<string>();
+    const statusListeners = new Set<(status: RelayStatus) => void>();
+
+    const notifyStatus = () => {
+      const status: RelayStatus = { connectedUrls: [...connectedUrls] };
+      for (const listener of statusListeners) listener(status);
+    };
+
+    const markConnected = (url: string) => {
+      if (!connectedUrls.has(url)) {
+        connectedUrls.add(url);
+        notifyStatus();
+      }
+    };
+
+    const markDisconnected = (url: string) => {
+      if (connectedUrls.has(url)) {
+        connectedUrls.delete(url);
+        notifyStatus();
+      }
+    };
+
     const getRelay = (url: string): Effect.Effect<Relay, RelayError> =>
       ScopedCache.get(connections, url).pipe(
         Effect.flatMap((relay) =>
@@ -86,8 +114,13 @@ export function createRelayHandle(): Effect.Effect<RelayHandle, never, Scope.Sco
       run: (relay: Relay) => Effect.Effect<A, RelayError>,
     ): Effect.Effect<A, RelayError> =>
       getRelay(url).pipe(
+        Effect.tap(() => Effect.sync(() => markConnected(url))),
         Effect.flatMap((relay) => run(relay)),
-        Effect.tapError(() => ScopedCache.invalidate(connections, url)),
+        Effect.tapError(() =>
+          ScopedCache.invalidate(connections, url).pipe(
+            Effect.tap(() => Effect.sync(() => markDisconnected(url))),
+          ),
+        ),
       );
 
     const collectEvents = (
@@ -139,7 +172,15 @@ export function createRelayHandle(): Effect.Effect<RelayHandle, never, Scope.Sco
                         url,
                         cause: e,
                       }),
-                  }),
+                  }).pipe(
+                    Effect.timeoutOrElse({
+                      duration: "10 seconds",
+                      onTimeout: () =>
+                        Effect.fail(
+                          new RelayError({ message: `Publish to ${url} timed out`, url }),
+                        ),
+                    }),
+                  ),
                 ),
               ),
             { concurrency: "unbounded" },
@@ -247,6 +288,13 @@ export function createRelayHandle(): Effect.Effect<RelayHandle, never, Scope.Sco
         ),
 
       closeAll: () => ScopedCache.invalidateAll(connections),
+
+      getStatus: (): RelayStatus => ({ connectedUrls: [...connectedUrls] }),
+
+      subscribeStatus: (callback) => {
+        statusListeners.add(callback);
+        return () => statusListeners.delete(callback);
+      },
     };
   });
 }

@@ -41,9 +41,17 @@
 
 			<InviteSection />
 
-			{#if db.syncStatus === "syncing"}
-				<p class="sync-status">Syncing...</p>
-			{/if}
+			<div class="status-bar">
+				<span class="relay-status" class:connected={db.relayStatus.connectedUrls.length > 0}>
+					{db.relayStatus.connectedUrls.length} relay{db.relayStatus.connectedUrls.length !== 1 ? 's' : ''} connected
+				</span>
+				{#if db.syncStatus === "syncing"}
+					<span class="sync-status">Syncing...</span>
+				{/if}
+				{#if db.pendingCount > 0}
+					<span class="sync-status pending">{db.pendingCount} pending</span>
+				{/if}
+			</div>
 
 			<TodoForm />
 
@@ -108,9 +116,28 @@
 		margin-bottom: 1rem;
 	}
 
+	.status-bar {
+		display: flex;
+		gap: 1rem;
+		align-items: center;
+		margin-bottom: 0.75rem;
+		font-size: 0.85rem;
+	}
+
+	.relay-status {
+		color: #999;
+	}
+
+	.relay-status.connected {
+		color: #2a9d2a;
+	}
+
 	.sync-status {
 		color: #06c;
-		margin-bottom: 0.5rem;
+	}
+
+	.sync-status.pending {
+		color: #e67e00;
 	}
 
 	.removed-banner {

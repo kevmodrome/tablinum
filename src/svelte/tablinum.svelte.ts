@@ -2,6 +2,7 @@ import { Effect, Exit, Scope } from "effect";
 import type { SchemaConfig } from "../schema/types.ts";
 import type { CollectionDef, CollectionFields } from "../schema/collection.ts";
 import type { DatabaseHandle, SyncStatus } from "../db/database-handle.ts";
+import type { RelayStatus } from "../sync/relay.ts";
 import type { Invite } from "../db/invite.ts";
 import type { MemberRecord } from "../db/members.ts";
 import {
@@ -15,6 +16,8 @@ import { createDeferred } from "./deferred.ts";
 export class Tablinum<S extends SchemaConfig> {
   status = $state<"initializing" | "ready" | "error" | "closed">("initializing");
   syncStatus = $state<SyncStatus>("idle");
+  pendingCount = $state(0);
+  relayStatus = $state<RelayStatus>({ connectedUrls: [] });
   error = $state<Error | null>(null);
 
   readonly ready: Promise<void>;
@@ -24,6 +27,8 @@ export class Tablinum<S extends SchemaConfig> {
   #collections = new Map<string, Collection<CollectionDef<CollectionFields>>>();
   #members = new Collection<CollectionDef<CollectionFields>>();
   #unsubscribeSyncStatus: (() => void) | null = null;
+  #unsubscribePendingCount: (() => void) | null = null;
+  #unsubscribeRelayStatus: (() => void) | null = null;
   #closed = false;
   #readyState = createDeferred<void>();
 
@@ -79,6 +84,14 @@ export class Tablinum<S extends SchemaConfig> {
       this.#unsubscribeSyncStatus = handle.subscribeSyncStatus((s) => {
         this.syncStatus = s;
       });
+      this.#unsubscribePendingCount = handle.subscribePendingCount((count) => {
+        this.pendingCount = count;
+      });
+      this.pendingCount = await Effect.runPromise(handle.pendingCount());
+      this.#unsubscribeRelayStatus = handle.subscribeRelayStatus((s) => {
+        this.relayStatus = s;
+      });
+      this.relayStatus = handle.getRelayStatus();
 
       this.status = "ready";
       this.#settleReady();
@@ -145,6 +158,14 @@ export class Tablinum<S extends SchemaConfig> {
     if (this.#unsubscribeSyncStatus) {
       this.#unsubscribeSyncStatus();
       this.#unsubscribeSyncStatus = null;
+    }
+    if (this.#unsubscribePendingCount) {
+      this.#unsubscribePendingCount();
+      this.#unsubscribePendingCount = null;
+    }
+    if (this.#unsubscribeRelayStatus) {
+      this.#unsubscribeRelayStatus();
+      this.#unsubscribeRelayStatus = null;
     }
     this.#members._destroy(closeError);
     for (const col of this.#collections.values()) col._destroy(closeError);

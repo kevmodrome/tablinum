@@ -1,4 +1,4 @@
-import { Effect, Option, Ref, Scope } from "effect";
+import { Effect, Option, Ref, Schedule, Scope } from "effect";
 import type { NostrEvent } from "nostr-tools/pure";
 import type { Filter } from "nostr-tools/filter";
 import { unwrapEvent } from "nostr-tools/nip59";
@@ -59,6 +59,35 @@ export function createSyncHandle(
         Effect.tapError((e) => Effect.sync(() => onSyncError?.(e))),
         Effect.ignore,
         Effect.forkIn(scope),
+      ),
+    );
+  };
+
+  let autoFlushActive = false;
+
+  const autoFlushEffect = Effect.gen(function* () {
+    const size = yield* publishQueue.size();
+    if (size === 0) return;
+    yield* syncStatus.set("syncing");
+    yield* publishQueue.flush(relayUrls);
+    const remaining = yield* publishQueue.size();
+    if (remaining > 0) yield* Effect.fail("pending");
+  }).pipe(
+    Effect.ensuring(syncStatus.set("idle")),
+    Effect.retry({ schedule: Schedule.exponential(5000).pipe(Schedule.jittered), times: 10 }),
+    Effect.ignore,
+  );
+
+  const scheduleAutoFlush = () => {
+    if (autoFlushActive) return;
+    autoFlushActive = true;
+    forkHandled(
+      autoFlushEffect.pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            autoFlushActive = false;
+          }),
+        ),
       ),
     );
   };
@@ -164,9 +193,9 @@ export function createSyncHandle(
 
   const processRealtimeGiftWrap = (remoteGw: NostrEvent): Effect.Effect<void> =>
     Effect.gen(function* () {
-      const result = yield* Effect.result(processGiftWrap(remoteGw));
-      if (result._tag === "Success" && result.success) {
-        yield* notifyCollectionUpdated(result.success);
+      const collection = yield* processGiftWrap(remoteGw).pipe(Effect.orElseSucceed(() => null));
+      if (collection) {
+        yield* notifyCollectionUpdated(collection);
       }
     });
 
@@ -238,14 +267,14 @@ export function createSyncHandle(
       relayUrls,
       (url) =>
         Effect.gen(function* () {
-          const subscribeResult = yield* Effect.result(
-            relay.subscribe(filter, url, (event) => {
+          yield* relay
+            .subscribe(filter, url, (event) => {
               forkHandled(onEvent(event));
-            }),
-          );
-          if (subscribeResult._tag === "Failure") {
-            onSyncError?.(subscribeResult.failure);
-          }
+            })
+            .pipe(
+              Effect.tapError((err) => Effect.sync(() => onSyncError?.(err))),
+              Effect.ignore,
+            );
         }),
       { discard: true },
     );
@@ -267,22 +296,21 @@ export function createSyncHandle(
       const { haveIds, needIds } = reconcileResult.success;
 
       if (needIds.length > 0) {
-        const fetchResult = yield* Effect.result(relay.fetchEvents(needIds, url));
-        if (fetchResult._tag === "Failure") {
-          onSyncError?.(fetchResult.failure);
-        } else {
-          yield* Effect.forEach(
-            fetchResult.success,
-            (remoteGw) =>
-              Effect.gen(function* () {
-                const processed = yield* Effect.result(processGiftWrap(remoteGw));
-                if (processed._tag === "Success" && processed.success) {
-                  changedCollections.add(processed.success);
-                }
-              }),
-            { discard: true },
-          );
-        }
+        const fetched = yield* relay.fetchEvents(needIds, url).pipe(
+          Effect.tapError((err) => Effect.sync(() => onSyncError?.(err))),
+          Effect.orElseSucceed(() => [] as NostrEvent[]),
+        );
+        yield* Effect.forEach(
+          fetched,
+          (remoteGw) =>
+            Effect.gen(function* () {
+              const collection = yield* processGiftWrap(remoteGw).pipe(
+                Effect.orElseSucceed(() => null),
+              );
+              if (collection) changedCollections.add(collection);
+            }),
+          { discard: true },
+        );
       }
 
       if (haveIds.length > 0) {
@@ -291,16 +319,13 @@ export function createSyncHandle(
           (id) =>
             Effect.gen(function* () {
               const gw = yield* storage.getGiftWrap(id);
-              if (!gw) return;
+              if (!gw?.event) return;
 
-              if (gw.event) {
-                const pubResult = yield* Effect.result(relay.publish(gw.event, [url]));
-                if (pubResult._tag === "Failure") {
-                  onSyncError?.(pubResult.failure);
-                }
-              } else {
-                yield* storage.deleteGiftWrap(id);
-              }
+              yield* relay.publish(gw.event, [url]).pipe(
+                Effect.andThen(storage.stripGiftWrapBlob(id)),
+                Effect.tapError((err) => Effect.sync(() => onSyncError?.(err))),
+                Effect.ignore,
+              );
             }),
           { discard: true },
         );
@@ -321,7 +346,7 @@ export function createSyncHandle(
             discard: true,
           });
 
-          yield* Effect.result(publishQueue.flush(relayUrls));
+          yield* publishQueue.flush(relayUrls).pipe(Effect.ignore);
         }).pipe(
           Effect.ensuring(
             Effect.gen(function* () {
@@ -335,12 +360,19 @@ export function createSyncHandle(
     publishLocal: (giftWrap) =>
       Effect.gen(function* () {
         if (!giftWrap.event) return;
-        const result = yield* Effect.result(relay.publish(giftWrap.event, relayUrls));
-        if (result._tag === "Failure") {
-          yield* Effect.result(storage.putGiftWrap(giftWrap));
-          yield* publishQueue.enqueue(giftWrap.id);
-          if (onSyncError) onSyncError(result.failure);
-        }
+        yield* relay.publish(giftWrap.event, relayUrls).pipe(
+          Effect.tapError(() =>
+            storage
+              .putGiftWrap(giftWrap)
+              .pipe(
+                Effect.andThen(publishQueue.enqueue(giftWrap.id)),
+                Effect.andThen(Effect.sync(() => scheduleAutoFlush())),
+                Effect.ignore,
+              ),
+          ),
+          Effect.tapError((err) => Effect.sync(() => onSyncError?.(err))),
+          Effect.ignore,
+        );
       }),
 
     startSubscription: () =>
@@ -358,6 +390,16 @@ export function createSyncHandle(
     addEpochSubscription: (publicKey: string) =>
       subscribeAcrossRelays({ kinds: [GiftWrap], "#p": [publicKey] }, processRealtimeGiftWrap),
   };
+
+  forkHandled(
+    publishQueue.size().pipe(
+      Effect.flatMap((size) =>
+        Effect.sync(() => {
+          if (size > 0) scheduleAutoFlush();
+        }),
+      ),
+    ),
+  );
 
   return handle;
 }
