@@ -173,21 +173,26 @@ function serializeEpochStore(store: EpochStore): EpochStoreSnapshot {
   };
 }
 
+export function stringifyEpochStore(store: EpochStore): string {
+  return JSON.stringify(serializeEpochStore(store));
+}
+
+export function deserializeEpochStore(raw: string): Option.Option<EpochStore> {
+  try {
+    return Option.some(hydrateEpochStore(decodePersistedEpochStore(raw)));
+  } catch {
+    return Option.none();
+  }
+}
+
 export function persistEpochs(store: EpochStore, dbName: DatabaseName): void {
   if (typeof globalThis.localStorage === "undefined") return;
-  globalThis.localStorage.setItem(
-    `tablinum-epochs-${dbName}`,
-    JSON.stringify(serializeEpochStore(store)),
-  );
+  globalThis.localStorage.setItem(`tablinum-epochs-${dbName}`, stringifyEpochStore(store));
 }
 
 export function loadPersistedEpochs(dbName: DatabaseName): Option.Option<EpochStore> {
   if (typeof globalThis.localStorage === "undefined") return Option.none();
   const raw = globalThis.localStorage.getItem(`tablinum-epochs-${dbName}`);
   if (!raw) return Option.none();
-  try {
-    return Option.some(hydrateEpochStore(decodePersistedEpochStore(raw)));
-  } catch {
-    return Option.none();
-  }
+  return deserializeEpochStore(raw);
 }

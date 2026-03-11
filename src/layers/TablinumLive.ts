@@ -18,7 +18,14 @@ import { membersCollectionDef, fetchAuthorProfile } from "../db/members.ts";
 import type { MemberRecord } from "../db/members.ts";
 import type { Invite } from "../db/invite.ts";
 import type { DatabaseHandle } from "../db/database-handle.ts";
-import { EpochId, getCurrentEpoch, addEpoch, persistEpochs, exportEpochKeys } from "../db/epoch.ts";
+import {
+  EpochId,
+  getCurrentEpoch,
+  addEpoch,
+  persistEpochs,
+  stringifyEpochStore,
+  exportEpochKeys,
+} from "../db/epoch.ts";
 import type { EpochStore as EpochStoreShape } from "../db/epoch.ts";
 import { createRotation } from "../db/key-rotation.ts";
 import { uuidv7 } from "../utils/uuid.ts";
@@ -68,14 +75,21 @@ function mapMemberRecord(record: Record<string, unknown>): MemberRecord {
 
 // --- Layer dependency graph (bottom-up wiring) ---
 
-// Tier 2: layers with inter-service deps
-const EpochStoreWithDeps = EpochStoreLive.pipe(Layer.provide(IdentityLive));
+// Tier 1: Identity and EpochStore both depend on Storage
+const IdentityWithDeps = IdentityLive.pipe(Layer.provide(StorageLive));
 
+const EpochStoreWithDeps = EpochStoreLive.pipe(
+  Layer.provide(IdentityWithDeps),
+  Layer.provide(StorageLive),
+);
+
+// Tier 2: GiftWrap depends on Identity + EpochStore
 const GiftWrapWithDeps = GiftWrapLive.pipe(
-  Layer.provide(IdentityLive),
+  Layer.provide(IdentityWithDeps),
   Layer.provide(EpochStoreWithDeps),
 );
 
+// Tier 2: PublishQueue depends on Storage + Relay
 const PublishQueueWithDeps = PublishQueueLive.pipe(
   Layer.provide(StorageLive),
   Layer.provide(RelayLive),
@@ -83,7 +97,7 @@ const PublishQueueWithDeps = PublishQueueLive.pipe(
 
 // All services merged (Config is the only remaining external requirement)
 const AllServicesLive = Layer.mergeAll(
-  IdentityLive,
+  IdentityWithDeps,
   EpochStoreWithDeps,
   StorageLive,
   RelayLive,
@@ -347,6 +361,7 @@ export const TablinumLive = Layer.effect(
             addEpoch(epochStore, result.epoch);
             epochStore.currentEpochId = result.epoch.id;
             persistEpochs(epochStore, config.dbName);
+            yield* storage.putMeta("epochs", stringifyEpochStore(epochStore));
 
             const memberRecord = yield* storage.getRecord("_members", pubkey);
             yield* putMemberRecord({
