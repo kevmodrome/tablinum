@@ -1,4 +1,4 @@
-import { Effect, Option, Stream } from "effect";
+import { Effect, Fiber, Option, Stream } from "effect";
 import type { CollectionDef, CollectionFields } from "../schema/collection.ts";
 import type { InferRecord } from "../schema/types.ts";
 import type { CollectionHandle } from "../crud/collection-handle.ts";
@@ -18,6 +18,7 @@ export class Collection<C extends CollectionDef<CollectionFields>> {
   #ready = createDeferred<void>();
   #version = $state(0);
   #watchAbort: AbortController | null = null;
+  #watchFiber: Fiber.Fiber<void, never> | null = null;
 
   /** @internal */
   _bind(handle: CollectionHandle<C>): void {
@@ -46,20 +47,23 @@ export class Collection<C extends CollectionDef<CollectionFields>> {
     if (!this.#handle) return;
     const abort = new AbortController();
     this.#watchAbort = abort;
-
-    Effect.runPromise(
+    this.#watchFiber = Effect.runFork(
       Stream.runForEach(this.#handle.watch(), (_records) =>
         Effect.sync(() => {
           if (!abort.signal.aborted) {
             this.#version++;
           }
         }),
+      ).pipe(
+        Effect.catch((e: unknown) =>
+          Effect.sync(() => {
+            if (!abort.signal.aborted) {
+              this.error = e instanceof Error ? e : new Error(String(e));
+            }
+          }),
+        ),
       ),
-    ).catch((e) => {
-      if (!abort.signal.aborted) {
-        this.error = e instanceof Error ? e : new Error(String(e));
-      }
-    });
+    );
   }
 
   #touchVersion = (): void => {
@@ -135,6 +139,10 @@ export class Collection<C extends CollectionDef<CollectionFields>> {
     if (this.#watchAbort) {
       this.#watchAbort.abort();
       this.#watchAbort = null;
+    }
+    if (this.#watchFiber) {
+      Effect.runFork(Fiber.interrupt(this.#watchFiber));
+      this.#watchFiber = null;
     }
     this.#handle = null;
     this.error ??= reason;

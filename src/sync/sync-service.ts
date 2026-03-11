@@ -33,6 +33,7 @@ export function createSyncHandle(
   syncStatus: SyncStatusHandle,
   watchCtx: WatchContext,
   relayUrls: readonly string[],
+  knownCollections: ReadonlySet<string>,
   epochStore: EpochStore,
   personalPrivateKey: Uint8Array,
   personalPublicKey: string,
@@ -128,6 +129,11 @@ export function createSyncHandle(
 
       const collectionName = dTag.substring(0, colonIdx);
       const recordId = dTag.substring(colonIdx + 1);
+
+      if (!knownCollections.has(collectionName)) {
+        yield* storage.putGiftWrap({ id: remoteGw.id, createdAt: remoteGw.created_at });
+        return null;
+      }
 
       if (rumor.pubkey) {
         const reject = yield* shouldRejectWrite(rumor.pubkey);
@@ -249,6 +255,11 @@ export function createSyncHandle(
             removedAt: Date.now(),
             removedInEpoch: epoch.id,
           });
+          yield* notifyChange(watchCtx, {
+            collection: "_members",
+            recordId: removedPubkey,
+            kind: "update",
+          });
           membersChanged = true;
         }
       }
@@ -367,7 +378,6 @@ export function createSyncHandle(
               .pipe(
                 Effect.andThen(publishQueue.enqueue(giftWrap.id)),
                 Effect.andThen(Effect.sync(() => scheduleAutoFlush())),
-                Effect.ignore,
               ),
           ),
           Effect.tapError((err) => Effect.sync(() => onSyncError?.(err))),

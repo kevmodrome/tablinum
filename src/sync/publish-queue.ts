@@ -4,7 +4,7 @@ import type { RelayHandle } from "./relay.ts";
 import type { RelayError, StorageError } from "../errors.ts";
 
 export interface PublishQueueHandle {
-  readonly enqueue: (eventId: string) => Effect.Effect<void>;
+  readonly enqueue: (eventId: string) => Effect.Effect<void, StorageError>;
   readonly flush: (relayUrls: readonly string[]) => Effect.Effect<void, RelayError | StorageError>;
   readonly size: () => Effect.Effect<number>;
   readonly subscribe: (callback: (count: number) => void) => () => void;
@@ -41,7 +41,7 @@ export function createPublishQueue(
             n.add(eventId);
             return n;
           });
-          yield* Effect.result(persist(storage, next));
+          yield* persist(storage, next);
           notify(next);
         }),
 

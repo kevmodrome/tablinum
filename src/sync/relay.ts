@@ -56,6 +56,7 @@ export function parseNegMessageFrame(data: string): Option.Option<NegFrame> {
 
 export function createRelayHandle(): Effect.Effect<RelayHandle, never, Scope.Scope> {
   return Effect.gen(function* () {
+    const relayScope = yield* Effect.scope;
     const connections = yield* ScopedCache.make<string, Relay, RelayError>({
       capacity: 64,
       lookup: (url) =>
@@ -128,31 +129,58 @@ export function createRelayHandle(): Effect.Effect<RelayHandle, never, Scope.Sco
       filters: ReadonlyArray<Filter>,
     ): Effect.Effect<NostrEvent[], RelayError> =>
       withRelay(url, (relay) =>
-        Effect.tryPromise({
-          try: () =>
-            new Promise<NostrEvent[]>((resolve) => {
-              const events: NostrEvent[] = [];
-              const timer = setTimeout(() => {
-                sub.close();
-                resolve(events);
-              }, 10000);
-              const sub = relay.subscribe([...filters], {
-                onevent(evt: NostrEvent) {
+        Effect.callback<NostrEvent[], RelayError>((resume) => {
+          const events: NostrEvent[] = [];
+          let settled = false;
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          let sub: { close: () => void } | undefined;
+
+          const cleanup = () => {
+            settled = true;
+            if (timer !== undefined) {
+              clearTimeout(timer);
+              timer = undefined;
+            }
+            sub?.close();
+            sub = undefined;
+          };
+
+          const fail = (e: unknown) =>
+            resume(
+              Effect.fail(
+                new RelayError({
+                  message: `Fetch from ${url} failed: ${e instanceof Error ? e.message : String(e)}`,
+                  url,
+                  cause: e,
+                }),
+              ),
+            );
+
+          try {
+            sub = relay.subscribe([...filters], {
+              onevent(evt: NostrEvent) {
+                if (!settled) {
                   events.push(evt);
-                },
-                oneose() {
-                  clearTimeout(timer);
-                  sub.close();
-                  resolve(events);
-                },
-              });
-            }),
-          catch: (e) =>
-            new RelayError({
-              message: `Fetch from ${url} failed: ${e instanceof Error ? e.message : String(e)}`,
-              url,
-              cause: e,
-            }),
+                }
+              },
+              oneose() {
+                if (settled) return;
+                cleanup();
+                resume(Effect.succeed(events));
+              },
+            });
+
+            timer = setTimeout(() => {
+              if (settled) return;
+              cleanup();
+              resume(Effect.succeed(events));
+            }, 10000);
+          } catch (e) {
+            cleanup();
+            fail(e);
+          }
+
+          return Effect.sync(cleanup);
         }),
       );
 
@@ -203,87 +231,126 @@ export function createRelayHandle(): Effect.Effect<RelayHandle, never, Scope.Sco
 
       subscribe: (filter, url, onEvent) =>
         withRelay(url, (relay) =>
-          Effect.try({
-            try: () => {
-              relay.subscribe([filter], {
-                onevent(evt: NostrEvent) {
-                  onEvent(evt);
-                },
-                oneose() {},
-              });
-            },
-            catch: (e) =>
-              new RelayError({
-                message: `Subscribe to ${url} failed: ${e instanceof Error ? e.message : String(e)}`,
-                url,
-                cause: e,
+          Effect.acquireRelease(
+            Effect.try({
+              try: () =>
+                relay.subscribe([filter], {
+                  onevent(evt: NostrEvent) {
+                    onEvent(evt);
+                  },
+                  oneose() {},
+                }),
+              catch: (e) =>
+                new RelayError({
+                  message: `Subscribe to ${url} failed: ${e instanceof Error ? e.message : String(e)}`,
+                  url,
+                  cause: e,
+                }),
+            }),
+            (sub) =>
+              Effect.sync(() => {
+                sub.close();
               }),
-          }),
+          ).pipe(Effect.provideService(Scope.Scope, relayScope), Effect.asVoid),
         ),
 
       sendNegMsg: (url, subId, filter, msgHex) =>
         withRelay(url, (relay) =>
-          Effect.tryPromise({
-            try: () =>
-              new Promise<{
-                msgHex: string | null;
-                haveIds: string[];
-                needIds: string[];
-              }>((resolve, reject) => {
-                const sub = relay.subscribe([filter], {
-                  onevent() {},
-                  oneose() {},
-                });
-
-                let timer: ReturnType<typeof setTimeout> | undefined;
-
-                const ws = (relay as any)._ws || (relay as any).ws;
-                if (!ws) {
-                  sub.close();
-                  reject(new Error("Cannot access relay WebSocket"));
-                  return;
+          Effect.callback<
+            {
+              msgHex: string | null;
+              haveIds: string[];
+              needIds: string[];
+            },
+            RelayError
+          >((resume) => {
+            let settled = false;
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            let sub: { close: () => void } | undefined;
+            let ws:
+              | {
+                  addEventListener: (
+                    type: "message",
+                    listener: (msg: MessageEvent) => void,
+                  ) => void;
+                  removeEventListener: (
+                    type: "message",
+                    listener: (msg: MessageEvent) => void,
+                  ) => void;
+                  send: (data: string) => void;
                 }
+              | undefined;
 
-                const cleanup = () => {
-                  if (timer !== undefined) {
-                    clearTimeout(timer);
-                  }
-                  sub.close();
-                  ws.removeEventListener("message", handler);
-                };
+            const cleanup = () => {
+              settled = true;
+              if (timer !== undefined) {
+                clearTimeout(timer);
+                timer = undefined;
+              }
+              sub?.close();
+              sub = undefined;
+              ws?.removeEventListener("message", handler);
+              ws = undefined;
+            };
 
-                timer = setTimeout(() => {
-                  cleanup();
-                  reject(new Error("NIP-77 negotiation timeout"));
-                }, 30000);
+            const fail = (e: unknown) =>
+              resume(
+                Effect.fail(
+                  new RelayError({
+                    message: `NIP-77 negotiation with ${url} failed: ${e instanceof Error ? e.message : String(e)}`,
+                    url,
+                    cause: e,
+                  }),
+                ),
+              );
 
-                const handler = (msg: MessageEvent) => {
-                  if (typeof msg.data !== "string") return;
-                  const frameOpt = parseNegMessageFrame(msg.data);
-                  if (Option.isNone(frameOpt) || frameOpt.value[1] !== subId) return;
+            const handler = (msg: MessageEvent) => {
+              if (settled || typeof msg.data !== "string") return;
+              const frameOpt = parseNegMessageFrame(msg.data);
+              if (Option.isNone(frameOpt) || frameOpt.value[1] !== subId) return;
 
-                  const frame = frameOpt.value;
-                  cleanup();
-                  if (frame[0] === "NEG-MSG") {
-                    resolve({
-                      msgHex: frame[2],
-                      haveIds: [],
-                      needIds: [],
-                    });
-                    return;
-                  }
-                  reject(new Error(`NEG-ERR: ${frame[2]}`));
-                };
+              const frame = frameOpt.value;
+              cleanup();
+              if (frame[0] === "NEG-MSG") {
+                resume(
+                  Effect.succeed({
+                    msgHex: frame[2],
+                    haveIds: [],
+                    needIds: [],
+                  }),
+                );
+                return;
+              }
+              fail(new Error(`NEG-ERR: ${frame[2]}`));
+            };
 
-                ws.addEventListener("message", handler);
-                ws.send(JSON.stringify(["NEG-OPEN", subId, filter, msgHex]));
-              }),
-            catch: (e) =>
-              new RelayError({
-                message: `NIP-77 negotiation with ${url} failed: ${e instanceof Error ? e.message : String(e)}`,
-                url,
-                cause: e,
-              }),
+            try {
+              sub = relay.subscribe([filter], {
+                onevent() {},
+                oneose() {},
+              });
+
+              ws = (relay as any)._ws || (relay as any).ws;
+              if (!ws) {
+                cleanup();
+                fail(new Error("Cannot access relay WebSocket"));
+                return Effect.succeed(undefined);
+              }
+
+              timer = setTimeout(() => {
+                if (settled) return;
+                cleanup();
+                fail(new Error("NIP-77 negotiation timeout"));
+              }, 30000);
+
+              ws.addEventListener("message", handler);
+              ws.send(JSON.stringify(["NEG-OPEN", subId, filter, msgHex]));
+            } catch (e) {
+              cleanup();
+              fail(e);
+            }
+
+            return Effect.sync(cleanup);
           }),
         ),
 

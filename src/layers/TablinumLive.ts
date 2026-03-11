@@ -119,6 +119,7 @@ export const TablinumLive = Layer.effect(
 
     const schemaEntries = Object.entries(config.schema) as CollectionEntry[];
     const allSchemaEntries = [...schemaEntries, ["_members", membersCollectionDef] as const];
+    const knownCollections = new Set(allSchemaEntries.map(([, def]) => def.name));
 
     let notifyAuthor: ((pubkey: string) => void) | undefined;
 
@@ -130,6 +131,7 @@ export const TablinumLive = Layer.effect(
       syncStatus,
       watchCtx,
       config.relays,
+      knownCollections,
       epochStore,
       identity.privateKey,
       identity.publicKey,
@@ -163,7 +165,7 @@ export const TablinumLive = Layer.effect(
         const gw = wrapResult.success;
         yield* storage.putGiftWrap({ id: gw.id, eventId: event.id, createdAt: gw.created_at });
 
-        yield* Effect.forkDetach(
+        yield* Effect.forkIn(
           Effect.gen(function* () {
             const publishResult = yield* Effect.result(
               syncHandle.publishLocal({
@@ -177,6 +179,7 @@ export const TablinumLive = Layer.effect(
               reportSyncError(config.onSyncError, publishResult.failure);
             }
           }),
+          scope,
         );
       });
 
@@ -229,6 +232,12 @@ export const TablinumLive = Layer.effect(
                 ...current,
                 ...profileOpt.value,
               });
+              yield* notifyChange(watchCtx, {
+                collection: "_members",
+                recordId: pubkey,
+                kind: "update",
+              });
+              config.onMembersChanged?.();
             }
           }
         }).pipe(Effect.ignore, Effect.forkIn(scope)),

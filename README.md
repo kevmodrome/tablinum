@@ -60,7 +60,7 @@ const program = Effect.gen(function* () {
   const todo = yield* todos.get(id);
 
   // Query
-  const pending = yield* todos.where("done").equals(false).toArray();
+  const pending = yield* todos.where("done").equals(false).get();
 
   // Update
   yield* todos.update(id, { done: true });
