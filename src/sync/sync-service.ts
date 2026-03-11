@@ -71,14 +71,11 @@ export function createSyncHandle(
     );
   };
 
-  // Check if a write should be rejected based on member removal
   const shouldRejectWrite = (
     authorPubkey: string,
     epochPublicKey: string,
   ): Effect.Effect<boolean, StorageError> =>
     Effect.gen(function* () {
-      // Check epoch-based write rejection
-
       let writeEpoch;
       for (const epoch of epochStore.epochs.values()) {
         if (epoch.publicKey === epochPublicKey) {
@@ -95,29 +92,24 @@ export function createSyncHandle(
       return (memberRecord.removedAt as number) <= writeEpoch.createdAt;
     });
 
-  // Process a single remote gift wrap: store, unwrap, apply event
   const processGiftWrap = (
     remoteGw: NostrEvent,
   ): Effect.Effect<string | null, StorageError | CryptoError> =>
     Effect.gen(function* () {
-      // Skip if we already have this gift wrap
       const existing = yield* storage.getGiftWrap(remoteGw.id);
       if (existing) return null;
 
-      // Store gift wrap
       yield* storage.putGiftWrap({
         id: remoteGw.id,
         event: remoteGw,
         createdAt: remoteGw.created_at,
       });
 
-      // Unwrap to get rumor
       const unwrapResult = yield* Effect.result(giftWrapHandle.unwrap(remoteGw));
       if (unwrapResult._tag === "Failure") return null;
 
       const rumor = unwrapResult.success;
 
-      // Parse the rumor content and d-tag
       const dTag = rumor.tags.find((t: string[]) => t[0] === "d")?.[1];
       if (!dTag) return null;
 
@@ -127,7 +119,6 @@ export function createSyncHandle(
       const collectionName = dTag.substring(0, colonIdx);
       const recordId = dTag.substring(colonIdx + 1);
 
-      // Write rejection: check if author was removed before this epoch
       const pTag = remoteGw.tags.find((t: string[]) => t[0] === "p")?.[1];
       if (pTag && rumor.pubkey) {
         const reject = yield* shouldRejectWrite(rumor.pubkey, pTag);
@@ -179,13 +170,10 @@ export function createSyncHandle(
       }
     });
 
-  // Process a rotation event received on personal subscription
   const processRotationGiftWrap = (
     remoteGw: NostrEvent,
   ): Effect.Effect<boolean, StorageError | CryptoError> =>
     Effect.gen(function* () {
-      // Try to unwrap rotation event with personal key
-
       const unwrapResult = yield* Effect.result(
         Effect.try({
           try: () => unwrapEvent(remoteGw, personalPrivateKey),
@@ -202,7 +190,6 @@ export function createSyncHandle(
       const dTag = rumor.tags.find((t: string[]) => t[0] === "d")?.[1];
       if (!dTag) return false;
 
-      // Check for removal notice (addressed to the removed member)
       const removalNoticeOpt = parseRemovalNotice(rumor.content, dTag);
       if (Option.isSome(removalNoticeOpt)) {
         if (onRemoved) onRemoved(removalNoticeOpt.value);
@@ -213,7 +200,6 @@ export function createSyncHandle(
       if (Option.isNone(rotationDataOpt)) return false;
       const rotationData = rotationDataOpt.value;
 
-      // Already have this epoch
       if (epochStore.epochs.has(rotationData.epochId)) return false;
 
       const epoch = createEpochKey(
@@ -227,7 +213,6 @@ export function createSyncHandle(
       epochStore.currentEpochId = epoch.id;
       persistEpochs(epochStore, dbName);
 
-      // Mark removed members
       let membersChanged = false;
       for (const removedPubkey of rotationData.removedMembers) {
         const memberRecord = yield* storage.getRecord("_members", removedPubkey);
@@ -242,7 +227,6 @@ export function createSyncHandle(
       }
       if (membersChanged && onMembersChanged) onMembersChanged();
 
-      // Subscribe to the new epoch's public key
       yield* handle.addEpochSubscription(epoch.publicKey);
 
       return true;
@@ -335,7 +319,6 @@ export function createSyncHandle(
             discard: true,
           });
 
-          // Flush pending publications
           yield* Effect.result(publishQueue.flush(relayUrls));
         }).pipe(
           Effect.ensuring(
@@ -361,7 +344,6 @@ export function createSyncHandle(
         const pubKeys = getSubscriptionPubKeys();
         yield* subscribeAcrossRelays({ kinds: [GiftWrap], "#p": pubKeys }, processRealtimeGiftWrap);
 
-        // Subscribe to personal pubkey for rotation events (multi-user only)
         if (!pubKeys.includes(personalPublicKey)) {
           yield* subscribeAcrossRelays({ kinds: [GiftWrap], "#p": [personalPublicKey] }, (event) =>
             Effect.result(processRotationGiftWrap(event)).pipe(Effect.asVoid),

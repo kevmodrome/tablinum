@@ -13,9 +13,6 @@ export interface WatchContext {
   readonly replayingRef: Ref.Ref<boolean>;
 }
 
-/**
- * Create a reactive Stream that emits the current result set whenever it changes.
- */
 export function watchCollection<T>(
   ctx: WatchContext,
   storage: IDBStorageHandle,
@@ -43,8 +40,6 @@ export function watchCollection<T>(
 
   return Stream.unwrap(
     Effect.gen(function* () {
-      // Yield to the event loop so any pending IDB write transactions commit
-      // before we read the initial state.
       yield* Effect.sleep(0);
       const initial = yield* query();
       return Stream.concat(Stream.make(initial), changes);
@@ -52,17 +47,10 @@ export function watchCollection<T>(
   );
 }
 
-/**
- * Notify subscribers of a change.
- */
 export function notifyChange(ctx: WatchContext, event: ChangeEvent): Effect.Effect<void> {
   return PubSub.publish(ctx.pubsub, event).pipe(Effect.asVoid);
 }
 
-/**
- * Emit a replay-complete notification for all collections that changed.
- * Call after sync replay to trigger batched watch updates.
- */
 export function notifyReplayComplete(
   ctx: WatchContext,
   collections: ReadonlyArray<string>,

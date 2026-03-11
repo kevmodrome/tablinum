@@ -75,7 +75,6 @@ export function createRotation(
     created_at: Math.floor(now / 1000),
   };
 
-  // Wrap individually to each remaining member's personal pubkey
   const wrappedEvents: NostrEvent[] = [];
   for (const memberPubkey of remainingMemberPubkeys) {
     if (memberPubkey === senderPublicKey) continue;
@@ -83,7 +82,6 @@ export function createRotation(
     wrappedEvents.push(wrapped);
   }
 
-  // Send removal notices to removed members
   const removalData: RemovalNotice = {
     _removed: true,
     epochId,

@@ -27,7 +27,6 @@ export const IdentityLive = Layer.effect(
     const storage = yield* Storage;
     const storageKeyName = `tablinum-key-${config.dbName}`;
 
-    // Source of truth: IDB _meta store
     const idbKey = yield* storage.getMeta("identity_key");
     const resolvedKey =
       config.privateKey ??
@@ -37,7 +36,6 @@ export const IdentityLive = Layer.effect(
     const identity = yield* createIdentity(resolvedKey);
     const exportedKey = identity.exportKey();
 
-    // Write to IDB (source of truth) and localStorage (cache)
     yield* storage.putMeta("identity_key", exportedKey);
     writeStoredValue(storageKeyName, exportedKey);
 

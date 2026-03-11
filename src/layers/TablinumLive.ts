@@ -73,9 +73,6 @@ function mapMemberRecord(record: Record<string, unknown>): MemberRecord {
   };
 }
 
-// --- Layer dependency graph (bottom-up wiring) ---
-
-// Tier 1: Identity and EpochStore both depend on Storage
 const IdentityWithDeps = IdentityLive.pipe(Layer.provide(StorageLive));
 
 const EpochStoreWithDeps = EpochStoreLive.pipe(
@@ -83,19 +80,16 @@ const EpochStoreWithDeps = EpochStoreLive.pipe(
   Layer.provide(StorageLive),
 );
 
-// Tier 2: GiftWrap depends on Identity + EpochStore
 const GiftWrapWithDeps = GiftWrapLive.pipe(
   Layer.provide(IdentityWithDeps),
   Layer.provide(EpochStoreWithDeps),
 );
 
-// Tier 2: PublishQueue depends on Storage + Relay
 const PublishQueueWithDeps = PublishQueueLive.pipe(
   Layer.provide(StorageLive),
   Layer.provide(RelayLive),
 );
 
-// All services merged (Config is the only remaining external requirement)
 const AllServicesLive = Layer.mergeAll(
   IdentityWithDeps,
   EpochStoreWithDeps,
@@ -119,20 +113,16 @@ export const TablinumLive = Layer.effect(
     const syncStatus = yield* SyncStatus;
     const scope = yield* Effect.scope;
 
-    // Shared watch context
     const pubsub = yield* PubSub.unbounded<ChangeEvent>();
     const replayingRef = yield* Ref.make(false);
     const closedRef = yield* Ref.make(false);
     const watchCtx = { pubsub, replayingRef };
 
-    // Schema entries
     const schemaEntries = Object.entries(config.schema) as CollectionEntry[];
     const allSchemaEntries = [...schemaEntries, ["_members", membersCollectionDef] as const];
 
-    // Late-bound author notifier (circular: sync → memberService → onWrite → sync)
     let notifyAuthor: ((pubkey: string) => void) | undefined;
 
-    // Create sync handle
     const syncHandle: SyncHandle = createSyncHandle(
       storage,
       giftWrap,
@@ -152,7 +142,6 @@ export const TablinumLive = Layer.effect(
       config.onMembersChanged,
     );
 
-    // OnWrite: gift-wrap and publish
     const onWrite: OnWriteCallback = (event) =>
       Effect.gen(function* () {
         const content =
@@ -188,7 +177,6 @@ export const TablinumLive = Layer.effect(
         );
       });
 
-    // Member service
     const knownAuthors = new Set<string>();
 
     const putMemberRecord = (record: Record<string, unknown>) =>
@@ -244,7 +232,6 @@ export const TablinumLive = Layer.effect(
       );
     };
 
-    // Build collection handles
     const handles = new Map<string, AnyCollectionHandle>();
     for (const [, def] of allSchemaEntries) {
       const validator = buildValidator(def.name, def);
@@ -261,10 +248,8 @@ export const TablinumLive = Layer.effect(
       handles.set(def.name, handle as AnyCollectionHandle);
     }
 
-    // Start subscriptions
     yield* syncHandle.startSubscription();
 
-    // Register self as member
     const selfMember = yield* storage.getRecord("_members", identity.publicKey);
     if (!selfMember) {
       yield* putMemberRecord({
@@ -274,7 +259,6 @@ export const TablinumLive = Layer.effect(
       });
     }
 
-    // Guard helpers
     const ensureOpen = <A, E>(effect: Effect.Effect<A, E>): Effect.Effect<A, E | StorageError> =>
       Effect.gen(function* () {
         if (yield* Ref.get(closedRef)) {
@@ -291,7 +275,6 @@ export const TablinumLive = Layer.effect(
         return yield* effect;
       });
 
-    // Build DatabaseHandle
     const dbHandle: DatabaseHandle<SchemaConfig> = {
       collection: (name) => {
         const handle = handles.get(name);

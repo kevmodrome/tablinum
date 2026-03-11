@@ -21,24 +21,21 @@ export const EpochStoreLive = Layer.effect(
     const identity = yield* Identity;
     const storage = yield* Storage;
 
-    // Source of truth: IDB _meta store
     const idbRaw = yield* storage.getMeta("epochs");
     if (typeof idbRaw === "string") {
       const idbStore = deserializeEpochStore(idbRaw);
       if (Option.isSome(idbStore)) {
-        persistEpochs(idbStore.value, config.dbName); // sync localStorage cache
+        persistEpochs(idbStore.value, config.dbName);
         return idbStore.value;
       }
     }
 
-    // Migrate from localStorage if present
     const persisted = loadPersistedEpochs(config.dbName);
     if (Option.isSome(persisted)) {
       yield* storage.putMeta("epochs", stringifyEpochStore(persisted.value));
       return persisted.value;
     }
 
-    // Use config-provided epoch keys
     if (config.epochKeys && config.epochKeys.length > 0) {
       const store = createEpochStoreFromInputs(config.epochKeys);
       persistEpochs(store, config.dbName);
@@ -46,7 +43,6 @@ export const EpochStoreLive = Layer.effect(
       return store;
     }
 
-    // Generate default epoch
     const store = createEpochStoreFromInputs(
       [{ epochId: EpochId("epoch-0"), key: bytesToHex(generateSecretKey()) }],
       { createdBy: identity.publicKey },

@@ -168,9 +168,7 @@ export function createRelayHandle(): Effect.Effect<RelayHandle, never, Scope.Sco
                 onevent(evt: NostrEvent) {
                   onEvent(evt);
                 },
-                oneose() {
-                  // Initial fetch complete, keep subscription open for real-time
-                },
+                oneose() {},
               });
             },
             catch: (e) =>
@@ -198,7 +196,6 @@ export function createRelayHandle(): Effect.Effect<RelayHandle, never, Scope.Sco
 
                 let timer: ReturnType<typeof setTimeout> | undefined;
 
-                // Use raw WebSocket for NIP-77
                 const ws = (relay as any)._ws || (relay as any).ws;
                 if (!ws) {
                   sub.close();

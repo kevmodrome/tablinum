@@ -22,7 +22,6 @@ export interface StoredGiftWrap {
 }
 
 export interface IDBStorageHandle {
-  // Records — per-collection stores with flat shape
   readonly putRecord: (
     collection: string,
     record: Record<string, unknown>,
@@ -37,7 +36,6 @@ export interface IDBStorageHandle {
   readonly countRecords: (collection: string) => Effect.Effect<number, StorageError>;
   readonly clearRecords: (collection: string) => Effect.Effect<void, StorageError>;
 
-  // Index-based queries
   readonly getByIndex: (
     collection: string,
     indexName: string,
@@ -54,7 +52,6 @@ export interface IDBStorageHandle {
     direction?: "next" | "prev",
   ) => Effect.Effect<ReadonlyArray<Record<string, unknown>>, StorageError>;
 
-  // Events
   readonly putEvent: (event: StoredEvent) => Effect.Effect<void, StorageError>;
   readonly getEvent: (id: string) => Effect.Effect<StoredEvent | undefined, StorageError>;
   readonly getAllEvents: () => Effect.Effect<ReadonlyArray<StoredEvent>, StorageError>;
@@ -63,12 +60,10 @@ export interface IDBStorageHandle {
     recordId: string,
   ) => Effect.Effect<ReadonlyArray<StoredEvent>, StorageError>;
 
-  // Gift wraps
   readonly putGiftWrap: (gw: StoredGiftWrap) => Effect.Effect<void, StorageError>;
   readonly getGiftWrap: (id: string) => Effect.Effect<StoredGiftWrap | undefined, StorageError>;
   readonly getAllGiftWraps: () => Effect.Effect<ReadonlyArray<StoredGiftWrap>, StorageError>;
 
-  // Meta store (schema sig, epoch keys, identity)
   readonly getMeta: (key: string) => Effect.Effect<unknown | undefined, StorageError>;
   readonly putMeta: (key: string, value: unknown) => Effect.Effect<void, StorageError>;
 
@@ -103,28 +98,23 @@ function wrap<T>(label: string, fn: () => Promise<T>): Effect.Effect<T, StorageE
 }
 
 function upgradeSchema(database: IDBPDatabase, schema: SchemaConfig, tx: IDBTransaction): void {
-  // Create _meta store if missing
   if (!database.objectStoreNames.contains("_meta")) {
     database.createObjectStore("_meta");
   }
 
-  // Create events store if missing
   if (!database.objectStoreNames.contains("events")) {
     const events = database.createObjectStore("events", { keyPath: "id" });
     events.createIndex("by-record", ["collection", "recordId"]);
   }
 
-  // Create giftwraps store if missing
   if (!database.objectStoreNames.contains("giftwraps")) {
     database.createObjectStore("giftwraps", { keyPath: "id" });
   }
 
-  // Remove old shared records store if it exists
   if (database.objectStoreNames.contains("records")) {
     database.deleteObjectStore("records");
   }
 
-  // Determine which collection stores should exist
   const expectedStores = new Set<string>();
   for (const [, def] of Object.entries(schema)) {
     const sn = storeName(def.name);
@@ -148,14 +138,12 @@ function upgradeSchema(database: IDBPDatabase, schema: SchemaConfig, tx: IDBTran
     }
   }
 
-  // Remove collection stores no longer in schema
   for (const existing of Array.from(database.objectStoreNames)) {
     if (existing.startsWith("col_") && !expectedStores.has(existing)) {
       database.deleteObjectStore(existing);
     }
   }
 
-  // Write schema signature into _meta
   tx.objectStore("_meta").put(computeSchemaSig(schema), "schema_sig");
 }
 
@@ -167,7 +155,6 @@ export function openIDBStorage(
     const name = dbName ?? DB_NAME;
     const schemaSig = computeSchemaSig(schema);
 
-    // Phase 1: Probe current state
     const probeDb: IDBPDatabase = yield* Effect.tryPromise({
       try: () => openDB(name),
       catch: (e) => new StorageError({ message: "Failed to open IndexedDB", cause: e }),
@@ -186,7 +173,6 @@ export function openIDBStorage(
 
     probeDb.close();
 
-    // Phase 2: Open with upgrade if schema changed, otherwise just open
     const db: IDBPDatabase = needsUpgrade
       ? yield* Effect.tryPromise({
           try: () =>

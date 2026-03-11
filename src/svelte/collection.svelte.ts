@@ -19,7 +19,7 @@ export class Collection<C extends CollectionDef<CollectionFields>> {
   #version = $state(0);
   #watchAbort: AbortController | null = null;
 
-  /** @internal Called by Tablinum after the core handle is available. */
+  /** @internal */
   _bind(handle: CollectionHandle<C>): void {
     if (this.#handle) return;
     this.#handle = handle;
@@ -28,7 +28,7 @@ export class Collection<C extends CollectionDef<CollectionFields>> {
     this.#startWatch();
   }
 
-  /** @internal Called by Tablinum if initialization fails before binding. */
+  /** @internal */
   _fail(err: Error): void {
     this.error = err;
     this.#settleReady(err);
@@ -63,7 +63,6 @@ export class Collection<C extends CollectionDef<CollectionFields>> {
   }
 
   #touchVersion = (): void => {
-    // Reading $state synchronously so $derived tracks this dependency
     void this.#version;
   };
 
@@ -95,7 +94,6 @@ export class Collection<C extends CollectionDef<CollectionFields>> {
     if (typeof id === "string") {
       return this.#run(() => this.#handleOrThrow().get(id));
     }
-    // No-arg: return all records. Touch version for $derived reactivity.
     this.#touchVersion();
     return this.#run(() =>
       Stream.runHead(this.#handleOrThrow().watch()).pipe(
@@ -132,7 +130,7 @@ export class Collection<C extends CollectionDef<CollectionFields>> {
     );
   };
 
-  /** @internal Called by Tablinum.close() */
+  /** @internal */
   _destroy(reason: Error = new ClosedError({ message: "Collection is closed" })): void {
     if (this.#watchAbort) {
       this.#watchAbort.abort();

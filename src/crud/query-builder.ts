@@ -5,10 +5,6 @@ import { ValidationError as VE } from "../errors.ts";
 import type { CollectionDef, CollectionFields } from "../schema/collection.ts";
 import type { WatchContext } from "./watch.ts";
 
-// ---------------------------------------------------------------------------
-// Query plan (internal)
-// ---------------------------------------------------------------------------
-
 interface QueryPlan {
   readonly fieldName?: string | undefined;
   readonly filters: Array<(record: Record<string, unknown>) => boolean>;
@@ -24,10 +20,6 @@ function emptyPlan(): QueryPlan {
   return { filters: [] };
 }
 
-// ---------------------------------------------------------------------------
-// Query context (shared deps for execution)
-// ---------------------------------------------------------------------------
-
 interface QueryContext {
   readonly storage: IDBStorageHandle;
   readonly watchCtx: WatchContext;
@@ -36,16 +28,11 @@ interface QueryContext {
   readonly mapRecord: (record: Record<string, unknown>) => unknown;
 }
 
-// ---------------------------------------------------------------------------
-// Execution
-// ---------------------------------------------------------------------------
-
 function executeQuery<T>(
   ctx: QueryContext,
   plan: QueryPlan,
 ): Effect.Effect<ReadonlyArray<T>, StorageError | ValidationError> {
   return Effect.gen(function* () {
-    // Validate field references
     if (plan.fieldName) {
       const fieldDef = ctx.def.fields[plan.fieldName];
       if (!fieldDef) {
@@ -62,7 +49,6 @@ function executeQuery<T>(
       }
     }
 
-    // Fetch records — use index if available
     let results: Record<string, unknown>[];
     if (plan.indexQuery && ctx.def.indices.includes(plan.indexQuery.field)) {
       if (plan.indexQuery.type === "value") {
@@ -87,7 +73,6 @@ function executeQuery<T>(
       ctx.def.indices.includes(plan.orderBy.field) &&
       plan.filters.length === 0
     ) {
-      // Use index for sorting when no filters need to be applied
       results = [
         ...(yield* ctx.storage.getAllSorted(
           ctx.collectionName,
@@ -99,15 +84,12 @@ function executeQuery<T>(
       results = [...(yield* ctx.storage.getAllRecords(ctx.collectionName))];
     }
 
-    // Filter deleted records
     results = results.filter((r) => !r._deleted);
 
-    // Apply filter predicates
     for (const f of plan.filters) {
       results = results.filter(f);
     }
 
-    // Sort (if not already sorted by IDB)
     if (plan.orderBy) {
       const alreadySorted =
         ctx.def.indices.includes(plan.orderBy.field) &&
@@ -124,17 +106,14 @@ function executeQuery<T>(
       }
     }
 
-    // Offset
     if (plan.offset) {
       results = results.slice(plan.offset);
     }
 
-    // Limit
     if (plan.limit !== null && plan.limit !== undefined) {
       results = results.slice(0, plan.limit);
     }
 
-    // Map to user-facing type
     return results.map(ctx.mapRecord) as ReadonlyArray<T>;
   });
 }
@@ -165,10 +144,6 @@ function watchQuery<T>(
   );
 }
 
-// ---------------------------------------------------------------------------
-// Public interfaces
-// ---------------------------------------------------------------------------
-
 export interface WhereClause<T> {
   readonly equals: (value: string | number | boolean) => QueryBuilder<T>;
   readonly above: (value: number) => QueryBuilder<T>;
@@ -198,10 +173,6 @@ export interface QueryBuilder<T> {
 }
 
 export type OrderByBuilder<T> = QueryBuilder<T>;
-
-// ---------------------------------------------------------------------------
-// Builders
-// ---------------------------------------------------------------------------
 
 function makeQueryBuilder<T>(ctx: QueryContext, plan: QueryPlan): QueryBuilder<T> {
   return {
@@ -235,10 +206,6 @@ function makeQueryBuilder<T>(ctx: QueryContext, plan: QueryPlan): QueryBuilder<T
   };
 }
 
-// ---------------------------------------------------------------------------
-// Factory functions (called by CollectionHandle)
-// ---------------------------------------------------------------------------
-
 export function createWhereClause<T>(
   storage: IDBStorageHandle,
   watchCtx: WatchContext,
@@ -249,7 +216,6 @@ export function createWhereClause<T>(
 ): WhereClause<T> {
   const ctx: QueryContext = { storage, watchCtx, collectionName, def, mapRecord };
   const fieldDef = def.fields[fieldName];
-  // IDB only supports string/number/Date/Array keys — not booleans
   const isIndexed =
     def.indices.includes(fieldName) &&
     fieldDef !== null &&

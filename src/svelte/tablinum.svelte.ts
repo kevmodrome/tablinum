@@ -76,7 +76,6 @@ export class Tablinum<S extends SchemaConfig> {
       this.#scope = scope;
       this.#bindCollections(handle);
 
-      // Subscribe to sync status changes (reactive push instead of polling)
       this.#unsubscribeSyncStatus = handle.subscribeSyncStatus((s) => {
         this.syncStatus = s;
       });

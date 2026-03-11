@@ -3,9 +3,6 @@ import type { IDBStorageHandle, StoredEvent } from "./idb.ts";
 import { resolveWinner } from "./lww.ts";
 import type { StorageError } from "../errors.ts";
 
-/**
- * Build a flat record from an event for storage in per-collection IDB stores.
- */
 function buildRecord(event: StoredEvent): Record<string, unknown> {
   return {
     id: event.recordId,
@@ -17,12 +14,6 @@ function buildRecord(event: StoredEvent): Record<string, unknown> {
   };
 }
 
-/**
- * Apply an event to the records store using LWW resolution.
- * Compares the incoming event directly against the materialized record (O(1))
- * instead of reading all events for the record.
- * Returns true if the incoming event won and the record was updated.
- */
 export function applyEvent(
   storage: IDBStorageHandle,
   event: StoredEvent,
@@ -45,9 +36,6 @@ export function applyEvent(
   });
 }
 
-/**
- * Rebuild the records store by clearing it and replaying all events.
- */
 export function rebuild(
   storage: IDBStorageHandle,
   collections: ReadonlyArray<string>,
@@ -58,10 +46,8 @@ export function rebuild(
     }
     const allEvents = yield* storage.getAllEvents();
 
-    // Sort by createdAt for deterministic replay
     const sorted = [...allEvents].sort((a, b) => a.createdAt - b.createdAt);
 
-    // Group events by record and resolve each
     const winners = new Map<string, StoredEvent>();
     for (const event of sorted) {
       const key = `${event.collection}:${event.recordId}`;
@@ -69,7 +55,6 @@ export function rebuild(
       winners.set(key, resolveWinner(current, event));
     }
 
-    // Write winning records
     for (const event of winners.values()) {
       yield* storage.putRecord(event.collection, buildRecord(event));
     }
