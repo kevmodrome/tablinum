@@ -5,6 +5,7 @@
     "declaration": true,
     "emitDeclarationOnly": true,
     "allowImportingTsExtensions": true,
+    "types": ["svelte"],
     "outDir": "dist",
     "rootDir": "src"
   },

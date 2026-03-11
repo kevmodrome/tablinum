@@ -196,6 +196,27 @@ function parseJson<T>(text: string): T | undefined {
   }
 }
 
+function parseTscErrors(tool: string, output: string): ValidationError[] {
+  const errors: ValidationError[] = [];
+
+  for (const line of normalizeOutputLines(output)) {
+    const match = line.match(/^(.*)\((\d+),(\d+)\): error (TS\d+): (.+)$/);
+    if (!match) continue;
+
+    errors.push({
+      tool,
+      file: match[1],
+      line: Number.parseInt(match[2], 10),
+      column: Number.parseInt(match[3], 10),
+      code: match[4],
+      severity: "error",
+      message: match[5],
+    });
+  }
+
+  return errors;
+}
+
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -342,6 +363,38 @@ async function runTests(): Promise<ValidationError[]> {
   return errors;
 }
 
+async function runTypeCheck(
+  tool: "tsc:core" | "tsc:svelte",
+  tsconfig: "tsconfig.build.json" | "tsconfig.build.svelte.json",
+): Promise<ValidationError[]> {
+  if (aborted) return [];
+
+  const { stdout, stderr, success } = await run("node_modules/.bin/tsc", [
+    "-p",
+    tsconfig,
+    "--noEmit",
+  ]);
+
+  if (aborted) return [];
+  if (success) return [];
+
+  const output = `${stdout}\n${stderr}`;
+  const errors = parseTscErrors(tool, output);
+
+  if (errors.length > 0) {
+    return errors;
+  }
+
+  const summary = summarizeFailureOutput(output);
+  return [
+    {
+      tool,
+      severity: "error",
+      message: `Type check failed${summary ? `: ${summary}` : ""}`,
+    },
+  ];
+}
+
 async function validate(): Promise<ValidationResult> {
   const start = Date.now();
 
@@ -352,6 +405,8 @@ async function validate(): Promise<ValidationResult> {
   const checks: Check[] = [
     { name: "oxfmt", fn: runFormatCheck },
     { name: "oxlint", fn: runLint },
+    { name: "tsc:core", fn: () => runTypeCheck("tsc:core", "tsconfig.build.json") },
+    { name: "tsc:svelte", fn: () => runTypeCheck("tsc:svelte", "tsconfig.build.svelte.json") },
     { name: "vitest", fn: runTests },
   ];
 

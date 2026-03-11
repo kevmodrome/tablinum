@@ -1,4 +1,4 @@
-import { Effect, PubSub, Ref, Scope } from "effect";
+import { Effect, Exit, PubSub, Ref, Scope } from "effect";
 import type { CollectionFields } from "../schema/collection.ts";
 import type { CollectionDef } from "../schema/collection.ts";
 import type { SchemaConfig } from "../schema/types.ts";
@@ -13,362 +13,447 @@ import {
 import type { ChangeEvent } from "../crud/watch.ts";
 import { notifyChange } from "../crud/watch.ts";
 import { createIdentity } from "./identity.ts";
+import type { Identity } from "./identity.ts";
 import type { DatabaseHandle } from "./database-handle.ts";
 import { createEpochGiftWrapHandle } from "../sync/gift-wrap.ts";
 import { createRelayHandle } from "../sync/relay.ts";
 import { createPublishQueue } from "../sync/publish-queue.ts";
 import { createSyncStatusHandle } from "../sync/sync-status.ts";
-import { createSyncHandle } from "../sync/sync-service.ts";
+import { createSyncHandle, type SyncHandle } from "../sync/sync-service.ts";
 import { CryptoError, StorageError, SyncError, ValidationError } from "../errors.ts";
 import { uuidv7 } from "../utils/uuid.ts";
 import { generateSecretKey, type NostrEvent } from "nostr-tools/pure";
 import { membersCollectionDef, fetchAuthorProfile } from "./members.ts";
 import type { MemberRecord } from "./members.ts";
 import type { Invite } from "./invite.ts";
-import type { StoredEvent } from "../storage/idb.ts";
+import type { IDBStorageHandle, StoredEvent } from "../storage/idb.ts";
+import type { RelayHandle } from "../sync/relay.ts";
+import type { PublishQueueHandle } from "../sync/publish-queue.ts";
+import type { SyncStatusHandle } from "../sync/sync-status.ts";
 import {
-  createEpochKey,
-  createEpochStore,
+  createEpochStoreFromInputs,
   addEpoch,
   getCurrentEpoch,
   persistEpochs,
   loadPersistedEpochs,
+  exportEpochKeys,
   bytesToHex,
   hexToBytes,
   type EpochStore,
+  type EpochKeyInput,
 } from "./epoch.ts";
 import { createRotation } from "./key-rotation.ts";
+import { resolveRuntimeConfig, type ResolvedRuntimeConfig } from "./runtime-config.ts";
 
 export interface TablinumConfig<S extends SchemaConfig> {
   readonly schema: S;
   readonly relays: readonly string[];
   readonly privateKey?: Uint8Array | undefined;
-  readonly groupPrivateKey?: Uint8Array | undefined;
-  readonly epochKeys?:
-    | ReadonlyArray<{ readonly epochId: string; readonly key: string }>
-    | undefined;
+  readonly epochKeys?: ReadonlyArray<EpochKeyInput> | undefined;
   readonly dbName?: string | undefined;
   readonly onSyncError?: ((error: Error) => void) | undefined;
   readonly onRemoved?: ((info: { epochId: string; removedBy: string }) => void) | undefined;
   readonly onMembersChanged?: (() => void) | undefined;
 }
 
-export function createTablinum<S extends SchemaConfig>(
-  config: TablinumConfig<S>,
-): Effect.Effect<DatabaseHandle<S>, ValidationError | StorageError | CryptoError, Scope.Scope> {
-  return Effect.gen(function* () {
-    if (!config.relays || config.relays.length === 0) {
-      return yield* new ValidationError({
-        message: "At least one relay URL is required",
-      });
-    }
+type AnyCollectionHandle = CollectionHandle<CollectionDef<CollectionFields>>;
+type CollectionEntry = readonly [string, CollectionDef<CollectionFields>];
 
-    const schemaEntries = Object.entries(config.schema);
-    if (schemaEntries.length === 0) {
+interface BootstrapState {
+  readonly dbNameResolved: string;
+  readonly identity: Identity;
+  readonly epochStore: EpochStore;
+}
+
+interface RuntimeContext {
+  readonly runtimeScope: Scope.Scope;
+  readonly storage: IDBStorageHandle;
+  readonly watchCtx: {
+    readonly pubsub: PubSub.PubSub<ChangeEvent>;
+    readonly replayingRef: Ref.Ref<boolean>;
+  };
+  readonly closedRef: Ref.Ref<boolean>;
+  readonly relayHandle: RelayHandle;
+  readonly publishQueue: PublishQueueHandle;
+  readonly syncStatus: SyncStatusHandle;
+}
+
+interface MemberWriterContext {
+  readonly storage: RuntimeContext["storage"];
+  readonly watchCtx: RuntimeContext["watchCtx"];
+  readonly epochStore: EpochStore;
+  readonly onWrite: OnWriteCallback;
+  readonly onMembersChanged?: (() => void) | undefined;
+}
+
+interface MemberService {
+  readonly putMemberRecord: (record: Record<string, unknown>) => Effect.Effect<void, StorageError>;
+  readonly onNewAuthor: (pubkey: string) => void;
+}
+
+interface HandleBuildContext {
+  readonly schemaEntries: ReadonlyArray<CollectionEntry>;
+  readonly storage: RuntimeContext["storage"];
+  readonly watchCtx: RuntimeContext["watchCtx"];
+  readonly onWrite: OnWriteCallback;
+}
+
+function validateConfig<S extends SchemaConfig>(
+  config: TablinumConfig<S>,
+): Effect.Effect<void, ValidationError> {
+  return Effect.gen(function* () {
+    if (Object.keys(config.schema).length === 0) {
       return yield* new ValidationError({
         message: "Schema must contain at least one collection",
       });
     }
+  });
+}
 
-    const dbNameResolved = config.dbName ?? "tablinum";
+function readStoredHex(key: string): string | undefined {
+  if (typeof globalThis.localStorage === "undefined") return undefined;
+  return globalThis.localStorage.getItem(key) ?? undefined;
+}
 
-    // Resolve private key: supplied > persisted > generate new
-    let resolvedKey = config.privateKey;
+function writeStoredValue(key: string, value: string): void {
+  if (typeof globalThis.localStorage === "undefined") return;
+  globalThis.localStorage.setItem(key, value);
+}
+
+function reportSyncError(onSyncError: ((error: Error) => void) | undefined, error: unknown): void {
+  if (!onSyncError) return;
+  onSyncError(error instanceof Error ? error : new Error(String(error)));
+}
+
+function resolveStoredKey(key: string): Uint8Array | undefined {
+  const saved = readStoredHex(key);
+  return saved && saved.length === 64 ? hexToBytes(saved) : undefined;
+}
+
+function resolveBootstrapState(
+  config: ResolvedRuntimeConfig,
+): Effect.Effect<BootstrapState, CryptoError> {
+  return Effect.gen(function* () {
+    const dbNameResolved = config.dbName;
     const storageKeyName = `tablinum-key-${dbNameResolved}`;
-    if (!resolvedKey && typeof globalThis.localStorage !== "undefined") {
-      const saved = globalThis.localStorage.getItem(storageKeyName);
-      if (saved && saved.length === 64) {
-        resolvedKey = hexToBytes(saved);
-      }
-    }
 
+    const resolvedKey = config.privateKey ?? resolveStoredKey(storageKeyName);
     const identity = yield* createIdentity(resolvedKey);
+    writeStoredValue(storageKeyName, identity.exportKey());
+    const epochStore = resolveEpochStore(config, dbNameResolved, identity);
 
-    // Persist the key for next session
-    if (typeof globalThis.localStorage !== "undefined") {
-      globalThis.localStorage.setItem(storageKeyName, identity.exportKey());
-    }
-
-    // Resolve group key: supplied > persisted > auto-generate
-    let resolvedGroupKey = config.groupPrivateKey;
-    const groupKeyName = `tablinum-group-key-${dbNameResolved}`;
-    if (!resolvedGroupKey && !config.epochKeys && typeof globalThis.localStorage !== "undefined") {
-      const saved = globalThis.localStorage.getItem(groupKeyName);
-      if (saved && saved.length === 64) {
-        resolvedGroupKey = hexToBytes(saved);
-      }
-    }
-
-    // Persist group key for next session
-    if (resolvedGroupKey && typeof globalThis.localStorage !== "undefined") {
-      globalThis.localStorage.setItem(groupKeyName, bytesToHex(resolvedGroupKey));
-    }
-
-    // Build epoch store (always created — single-user is just multi-user with one member)
-    let epochStore: EpochStore;
-
-    const persisted = loadPersistedEpochs(dbNameResolved);
-    if (persisted && persisted.epochs.length > 0) {
-      epochStore = createEpochStore(persisted.epochs[0]);
-      for (let i = 1; i < persisted.epochs.length; i++) {
-        addEpoch(epochStore, persisted.epochs[i]);
-      }
-      epochStore.currentEpochId = persisted.currentEpochId;
-    } else if (config.epochKeys && config.epochKeys.length > 0) {
-      const firstKey = config.epochKeys[0];
-      const epoch0 = createEpochKey(firstKey.epochId, firstKey.key, Date.now(), "");
-      epochStore = createEpochStore(epoch0);
-      for (let i = 1; i < config.epochKeys.length; i++) {
-        const ek = config.epochKeys[i];
-        addEpoch(epochStore, createEpochKey(ek.epochId, ek.key, Date.now(), ""));
-      }
-      epochStore.currentEpochId = config.epochKeys[config.epochKeys.length - 1].epochId;
-      persistEpochs(epochStore, dbNameResolved);
-    } else {
-      const groupKey = resolvedGroupKey ?? generateSecretKey();
-      if (!resolvedGroupKey && typeof globalThis.localStorage !== "undefined") {
-        globalThis.localStorage.setItem(groupKeyName, bytesToHex(groupKey));
-      }
-      const groupKeyHex = bytesToHex(groupKey);
-      const epoch0 = createEpochKey("epoch-0", groupKeyHex, Date.now(), identity.publicKey);
-      epochStore = createEpochStore(epoch0);
-      persistEpochs(epochStore, dbNameResolved);
-    }
-
-    // Derive gift wrap handle
-    const giftWrapHandle = createEpochGiftWrapHandle(identity.privateKey, epochStore);
-
-    // Inject _members into schema for IDB storage
-    const augmentedSchema: SchemaConfig = {
-      ...config.schema,
-      _members: membersCollectionDef,
+    return {
+      dbNameResolved,
+      identity,
+      epochStore,
     };
+  });
+}
 
-    const storage = yield* openIDBStorage(dbNameResolved, augmentedSchema);
+function resolveEpochStore(
+  config: ResolvedRuntimeConfig,
+  dbNameResolved: string,
+  identity: Identity,
+): EpochStore {
+  const persisted = loadPersistedEpochs(dbNameResolved);
+  if (persisted) {
+    return persisted;
+  }
 
-    // Watch infrastructure
-    const pubsub = yield* PubSub.unbounded<ChangeEvent>();
-    const replayingRef = yield* Ref.make(false);
-    const watchCtx = { pubsub, replayingRef };
-    const closedRef = yield* Ref.make(false);
+  if (config.epochKeys && config.epochKeys.length > 0) {
+    const epochStore = createEpochStoreFromInputs(config.epochKeys);
+    persistEpochs(epochStore, dbNameResolved);
+    return epochStore;
+  }
 
-    // Sync infrastructure
-    const relayHandle = createRelayHandle();
-    const publishQueue = yield* createPublishQueue(storage, relayHandle);
-    const syncStatus = yield* createSyncStatusHandle();
+  const epochStore = createEpochStoreFromInputs(
+    [{ epochId: "epoch-0", key: bytesToHex(generateSecretKey()) }],
+    { createdBy: identity.publicKey },
+  );
+  persistEpochs(epochStore, dbNameResolved);
+  return epochStore;
+}
 
-    // Track known authors to avoid redundant Kind 0 fetches
-    const knownAuthors = new Set<string>();
+function createRuntimeContext(
+  runtimeScope: Scope.Scope,
+  dbNameResolved: string,
+  schema: SchemaConfig,
+): Effect.Effect<RuntimeContext, StorageError, Scope.Scope> {
+  return Effect.gen(function* () {
+    const storage = yield* openIDBStorage(dbNameResolved, schema).pipe(
+      Effect.provideService(Scope.Scope, runtimeScope),
+    );
+    const relayHandle = yield* createRelayHandle().pipe(
+      Effect.provideService(Scope.Scope, runtimeScope),
+    );
+    const [pubsub, replayingRef, closedRef, publishQueue, syncStatus] = yield* Effect.all([
+      PubSub.unbounded<ChangeEvent>(),
+      Ref.make(false),
+      Ref.make(false),
+      createPublishQueue(storage, relayHandle),
+      createSyncStatusHandle(),
+    ]);
 
-    // On local write: create gift wrap and publish asynchronously
-    const onWrite: OnWriteCallback = (event) =>
-      Effect.gen(function* () {
-        const content =
-          event.kind === "delete" ? JSON.stringify({ _deleted: true }) : JSON.stringify(event.data);
-        const dTag = `${event.collection}:${event.recordId}`;
-
-        const wrapResult = yield* Effect.result(
-          giftWrapHandle.wrap({
-            kind: 1,
-            content,
-            tags: [["d", dTag]],
-            created_at: Math.floor(event.createdAt / 1000),
-          }),
-        );
-
-        if (wrapResult._tag === "Success") {
-          const gw = wrapResult.success;
-          yield* storage.putGiftWrap({
-            id: gw.id,
-            event: gw as unknown as Record<string, unknown>,
-            createdAt: gw.created_at,
-          });
-          const publishEffect = Effect.gen(function* () {
-            const pubResult = yield* Effect.result(
-              syncHandle.publishLocal({
-                id: gw.id,
-                event: gw as unknown as Record<string, unknown>,
-                createdAt: gw.created_at,
-              }),
-            );
-            if (pubResult._tag === "Failure") {
-              const err = pubResult.failure;
-              if (config.onSyncError) config.onSyncError(err);
-            }
-          });
-          yield* Effect.forkDetach(publishEffect);
-        } else {
-          const err = wrapResult.failure;
-          if (config.onSyncError)
-            config.onSyncError(err instanceof Error ? err : new Error(String(err)));
-        }
-      });
-
-    // Helper to write a member record with a specific ID and sync via gift wrap
-    const putMemberRecord = (record: Record<string, unknown>) =>
-      Effect.gen(function* () {
-        const existing = yield* storage.getRecord("_members", record.id as string);
-        const event: StoredEvent = {
-          id: uuidv7(),
-          collection: "_members",
-          recordId: record.id as string,
-          kind: existing ? "update" : "create",
-          data: record,
-          createdAt: Date.now(),
-        };
-        yield* storage.putEvent(event);
-        yield* applyEvent(storage, event);
-        yield* onWrite(event);
-        yield* notifyChange(watchCtx, {
-          collection: "_members",
-          recordId: record.id as string,
-          kind: existing ? "update" : "create",
-        });
-        if (config.onMembersChanged) config.onMembersChanged();
-      });
-
-    const onNewAuthor = (pubkey: string) => {
-      if (knownAuthors.has(pubkey)) return;
-      knownAuthors.add(pubkey);
-
-      Effect.runFork(
-        Effect.gen(function* () {
-          const existing = yield* storage.getRecord("_members", pubkey);
-
-          if (!existing) {
-            yield* putMemberRecord({
-              id: pubkey,
-              addedAt: Date.now(),
-              addedInEpoch: getCurrentEpoch(epochStore).id,
-            });
-          }
-
-          // Fetch Kind 0 profile
-          const profile = yield* Effect.result(
-            fetchAuthorProfile(relayHandle, config.relays, pubkey),
-          );
-          if (profile._tag === "Success" && profile.success) {
-            const current = yield* storage.getRecord("_members", pubkey);
-            if (current) {
-              yield* storage.putRecord("_members", {
-                ...current,
-                ...profile.success,
-              });
-            }
-          }
-        }),
-      );
-    };
-
-    const syncHandle = createSyncHandle(
+    return {
+      runtimeScope,
       storage,
-      giftWrapHandle,
+      watchCtx: { pubsub, replayingRef },
+      closedRef,
       relayHandle,
       publishQueue,
       syncStatus,
-      watchCtx,
-      config.relays,
-      epochStore,
-      identity.privateKey,
-      identity.publicKey,
-      dbNameResolved,
-      config.onSyncError,
-      onNewAuthor,
-      config.onRemoved,
-      config.onMembersChanged,
-    );
+    };
+  });
+}
 
-    // Build collection handles (user schema + _members)
-    const handles = new Map<string, CollectionHandle<CollectionDef<CollectionFields>>>();
-    const allSchemaEntries = [...schemaEntries, ["_members", membersCollectionDef] as const];
+function createOnWrite(
+  storage: RuntimeContext["storage"],
+  giftWrapHandle: ReturnType<typeof createEpochGiftWrapHandle>,
+  publishLocal: SyncHandle["publishLocal"],
+  onSyncError?: ((error: Error) => void) | undefined,
+): OnWriteCallback {
+  return (event) =>
+    Effect.gen(function* () {
+      const content =
+        event.kind === "delete" ? JSON.stringify({ _deleted: true }) : JSON.stringify(event.data);
+      const dTag = `${event.collection}:${event.recordId}`;
 
-    for (const [, def] of allSchemaEntries) {
-      const validator = buildValidator(def.name, def);
-      const partialValidator = buildPartialValidator(def.name, def);
-      const handle = createCollectionHandle(
-        def,
-        storage,
-        watchCtx,
-        validator,
-        partialValidator,
-        uuidv7,
-        onWrite,
+      const wrapResult = yield* Effect.result(
+        giftWrapHandle.wrap({
+          kind: 1,
+          content,
+          tags: [["d", dTag]],
+          created_at: Math.floor(event.createdAt / 1000),
+        }),
       );
-      handles.set(def.name, handle as CollectionHandle<CollectionDef<CollectionFields>>);
-    }
 
-    // Start real-time subscription to incoming gift wraps
-    yield* syncHandle.startSubscription();
+      if (wrapResult._tag === "Failure") {
+        reportSyncError(onSyncError, wrapResult.failure);
+        return;
+      }
 
-    // Ensure current user is registered as a member
-    const selfMember = yield* storage.getRecord("_members", identity.publicKey);
-    if (!selfMember) {
-      yield* putMemberRecord({
-        id: identity.publicKey,
-        addedAt: Date.now(),
-        addedInEpoch: getCurrentEpoch(epochStore).id,
+      const gw = wrapResult.success;
+      yield* storage.putGiftWrap({
+        id: gw.id,
+        event: gw as unknown as Record<string, unknown>,
+        createdAt: gw.created_at,
       });
-    }
 
-    const dbHandle: DatabaseHandle<S> = {
-      collection: <K extends string & keyof S>(name: K) => {
-        const handle = handles.get(name);
-        if (!handle) {
-          throw new Error(`Collection "${name}" not found in schema`);
-        }
-        return handle as unknown as CollectionHandle<S[K]>;
-      },
-
-      publicKey: identity.publicKey,
-
-      members: handles.get("_members")! as CollectionHandle<CollectionDef<CollectionFields>>,
-
-      exportKey: () => identity.exportKey(),
-
-      exportInvite: (): Invite => {
-        const epochKeys = Array.from(epochStore.epochs.values())
-          .sort((a, b) => a.createdAt - b.createdAt)
-          .map((e) => ({ epochId: e.id, key: e.privateKey }));
-        return {
-          epochKeys,
-          relays: [...config.relays],
-          dbName: dbNameResolved,
-        };
-      },
-
-      close: () =>
+      yield* Effect.forkDetach(
         Effect.gen(function* () {
-          yield* Ref.set(closedRef, true);
-          yield* relayHandle.closeAll();
-          yield* storage.close();
-        }),
-
-      rebuild: () =>
-        Effect.gen(function* () {
-          const closed = yield* Ref.get(closedRef);
-          if (closed) {
-            return yield* new StorageError({ message: "Database is closed" });
-          }
-          yield* rebuildRecords(
-            storage,
-            allSchemaEntries.map(([, def]) => def.name),
+          const publishResult = yield* Effect.result(
+            publishLocal({
+              id: gw.id,
+              event: gw as unknown as Record<string, unknown>,
+              createdAt: gw.created_at,
+            }),
           );
-        }),
-
-      sync: () =>
-        Effect.gen(function* () {
-          const closed = yield* Ref.get(closedRef);
-          if (closed) {
-            return yield* new SyncError({ message: "Database is closed", phase: "init" });
+          if (publishResult._tag === "Failure") {
+            reportSyncError(onSyncError, publishResult.failure);
           }
-          yield* syncHandle.sync();
         }),
+      );
+    });
+}
 
-      getSyncStatus: () => syncStatus.get(),
+function createMemberService(
+  context: MemberWriterContext,
+  relayHandle: RuntimeContext["relayHandle"],
+  relayUrls: readonly string[],
+): MemberService {
+  const knownAuthors = new Set<string>();
 
-      addMember: (pubkey: string) =>
+  const putMemberRecord = (record: Record<string, unknown>) =>
+    Effect.gen(function* () {
+      const existing = yield* context.storage.getRecord("_members", record.id as string);
+      const event: StoredEvent = {
+        id: uuidv7(),
+        collection: "_members",
+        recordId: record.id as string,
+        kind: existing ? "update" : "create",
+        data: record,
+        createdAt: Date.now(),
+      };
+      yield* context.storage.putEvent(event);
+      yield* applyEvent(context.storage, event);
+      yield* context.onWrite(event);
+      yield* notifyChange(context.watchCtx, {
+        collection: "_members",
+        recordId: record.id as string,
+        kind: existing ? "update" : "create",
+      });
+      context.onMembersChanged?.();
+    });
+
+  const onNewAuthor = (pubkey: string) => {
+    if (knownAuthors.has(pubkey)) return;
+    knownAuthors.add(pubkey);
+
+    Effect.runFork(
+      Effect.gen(function* () {
+        const existing = yield* context.storage.getRecord("_members", pubkey);
+
+        if (!existing) {
+          yield* putMemberRecord({
+            id: pubkey,
+            addedAt: Date.now(),
+            addedInEpoch: getCurrentEpoch(context.epochStore).id,
+          });
+        }
+
+        const profile = yield* fetchAuthorProfile(relayHandle, relayUrls, pubkey).pipe(
+          Effect.catch(() => Effect.succeed(null)),
+        );
+        if (profile) {
+          const current = yield* context.storage.getRecord("_members", pubkey);
+          if (current) {
+            yield* context.storage.putRecord("_members", {
+              ...current,
+              ...profile,
+            });
+          }
+        }
+      }).pipe(Effect.ignore),
+    );
+  };
+
+  return { putMemberRecord, onNewAuthor };
+}
+
+function buildCollectionHandles({
+  schemaEntries,
+  storage,
+  watchCtx,
+  onWrite,
+}: HandleBuildContext): Map<string, AnyCollectionHandle> {
+  const handles = new Map<string, AnyCollectionHandle>();
+
+  for (const [, def] of schemaEntries) {
+    const validator = buildValidator(def.name, def);
+    const partialValidator = buildPartialValidator(def.name, def);
+    const handle = createCollectionHandle(
+      def,
+      storage,
+      watchCtx,
+      validator,
+      partialValidator,
+      uuidv7,
+      onWrite,
+    );
+    handles.set(def.name, handle as AnyCollectionHandle);
+  }
+
+  return handles;
+}
+
+function mapMemberRecord(record: Record<string, unknown>): MemberRecord {
+  return {
+    id: record.id as string,
+    addedAt: record.addedAt as number,
+    addedInEpoch: record.addedInEpoch as string,
+    ...(record.name !== undefined ? { name: record.name as string } : {}),
+    ...(record.picture !== undefined ? { picture: record.picture as string } : {}),
+    ...(record.about !== undefined ? { about: record.about as string } : {}),
+    ...(record.nip05 !== undefined ? { nip05: record.nip05 as string } : {}),
+    ...(record.removedAt !== undefined ? { removedAt: record.removedAt as number } : {}),
+    ...(record.removedInEpoch !== undefined
+      ? { removedInEpoch: record.removedInEpoch as string }
+      : {}),
+  };
+}
+
+function createDatabaseHandle<S extends SchemaConfig>(args: {
+  readonly runtimeConfig: ResolvedRuntimeConfig;
+  readonly dbNameResolved: string;
+  readonly schemaEntries: ReadonlyArray<CollectionEntry>;
+  readonly identity: Identity;
+  readonly epochStore: EpochStore;
+  readonly runtime: RuntimeContext;
+  readonly handles: Map<string, AnyCollectionHandle>;
+  readonly syncHandle: SyncHandle;
+  readonly putMemberRecord: MemberService["putMemberRecord"];
+  readonly onSyncError?: ((error: Error) => void) | undefined;
+}): DatabaseHandle<S> {
+  const {
+    runtimeConfig,
+    dbNameResolved,
+    schemaEntries,
+    identity,
+    epochStore,
+    runtime,
+    handles,
+    syncHandle,
+    putMemberRecord,
+    onSyncError,
+  } = args;
+
+  const ensureStorageOpen = <A, E>(
+    effect: Effect.Effect<A, E>,
+  ): Effect.Effect<A, E | StorageError> =>
+    Effect.gen(function* () {
+      const closed = yield* Ref.get(runtime.closedRef);
+      if (closed) {
+        return yield* new StorageError({ message: "Database is closed" });
+      }
+      return yield* effect;
+    });
+
+  const ensureSyncOpen = <A, E>(effect: Effect.Effect<A, E>): Effect.Effect<A, E | SyncError> =>
+    Effect.gen(function* () {
+      const closed = yield* Ref.get(runtime.closedRef);
+      if (closed) {
+        return yield* new SyncError({ message: "Database is closed", phase: "init" });
+      }
+      return yield* effect;
+    });
+
+  return {
+    collection: <K extends string & keyof S>(name: K) => {
+      const handle = handles.get(name);
+      if (!handle) {
+        throw new Error(`Collection "${name}" not found in schema`);
+      }
+      return handle as unknown as CollectionHandle<S[K]>;
+    },
+
+    publicKey: identity.publicKey,
+
+    members: handles.get("_members")! as AnyCollectionHandle,
+
+    exportKey: () => identity.exportKey(),
+
+    exportInvite: (): Invite => {
+      return {
+        epochKeys: [...exportEpochKeys(epochStore)],
+        relays: [...runtimeConfig.relays],
+        dbName: dbNameResolved,
+      };
+    },
+
+    close: () =>
+      Effect.gen(function* () {
+        const closed = yield* Ref.get(runtime.closedRef);
+        if (closed) return;
+        yield* Ref.set(runtime.closedRef, true);
+        yield* Scope.close(runtime.runtimeScope, Exit.void);
+      }),
+
+    rebuild: () =>
+      ensureStorageOpen(
+        rebuildRecords(
+          runtime.storage,
+          schemaEntries.map(([, def]) => def.name),
+        ),
+      ),
+
+    sync: () => ensureSyncOpen(syncHandle.sync()),
+
+    getSyncStatus: () => runtime.syncStatus.get(),
+
+    addMember: (pubkey: string) =>
+      ensureStorageOpen(
         Effect.gen(function* () {
-          const existing = yield* storage.getRecord("_members", pubkey);
+          const existing = yield* runtime.storage.getRecord("_members", pubkey);
           if (existing && !existing.removedAt) return;
 
           yield* putMemberRecord({
@@ -378,15 +463,17 @@ export function createTablinum<S extends SchemaConfig>(
             ...(existing ? { removedAt: undefined, removedInEpoch: undefined } : {}),
           });
         }),
+      ),
 
-      removeMember: (pubkey: string) =>
+    removeMember: (pubkey: string) =>
+      ensureStorageOpen(
         Effect.gen(function* () {
-          // Get all active members
-          const allMembers = yield* storage.getAllRecords("_members");
-          const activeMembers = allMembers.filter((m) => !m.removedAt && m.id !== pubkey);
-          const activePubkeys = activeMembers.map((m) => m.id as string);
+          const allMembers = yield* runtime.storage.getAllRecords("_members");
+          const activeMembers = allMembers.filter(
+            (member) => !member.removedAt && member.id !== pubkey,
+          );
+          const activePubkeys = activeMembers.map((member) => member.id as string);
 
-          // Create rotation
           const result = createRotation(
             epochStore,
             identity.privateKey,
@@ -395,61 +482,54 @@ export function createTablinum<S extends SchemaConfig>(
             [pubkey],
           );
 
-          // Add new epoch
           addEpoch(epochStore, result.epoch);
           epochStore.currentEpochId = result.epoch.id;
           persistEpochs(epochStore, dbNameResolved);
 
-          // Mark member as removed
-          const memberRecord = yield* storage.getRecord("_members", pubkey);
+          const memberRecord = yield* runtime.storage.getRecord("_members", pubkey);
           yield* putMemberRecord({
             ...(memberRecord ?? { id: pubkey, addedAt: 0, addedInEpoch: "epoch-0" }),
             removedAt: Date.now(),
             removedInEpoch: result.epoch.id,
           });
 
-          // Publish rotation events to remaining members
-          for (const wrappedEvent of result.wrappedEvents) {
-            yield* Effect.result(
-              relayHandle.publish(wrappedEvent as unknown as NostrEvent, [...config.relays]),
-            );
-          }
+          yield* Effect.forEach(
+            result.wrappedEvents,
+            (wrappedEvent) =>
+              runtime.relayHandle
+                .publish(wrappedEvent as NostrEvent, [...runtimeConfig.relays])
+                .pipe(
+                  Effect.tapError((e) => Effect.sync(() => reportSyncError(onSyncError, e))),
+                  Effect.ignore,
+                ),
+            { discard: true },
+          );
+          yield* Effect.forEach(
+            result.removalNotices,
+            (notice) =>
+              runtime.relayHandle.publish(notice as NostrEvent, [...runtimeConfig.relays]).pipe(
+                Effect.tapError((e) => Effect.sync(() => reportSyncError(onSyncError, e))),
+                Effect.ignore,
+              ),
+            { discard: true },
+          );
 
-          // Notify removed members
-          for (const notice of result.removalNotices) {
-            yield* Effect.result(
-              relayHandle.publish(notice as unknown as NostrEvent, [...config.relays]),
-            );
-          }
-
-          // Subscribe to new epoch key
           yield* syncHandle.addEpochSubscription(result.epoch.publicKey);
         }),
+      ),
 
-      getMembers: () =>
+    getMembers: () =>
+      ensureStorageOpen(
         Effect.gen(function* () {
-          const allRecords = yield* storage.getAllRecords("_members");
-          return allRecords
-            .filter((r) => !r._deleted)
-            .map(
-              (r) =>
-                ({
-                  id: r.id as string,
-                  name: r.name as string | undefined,
-                  picture: r.picture as string | undefined,
-                  about: r.about as string | undefined,
-                  nip05: r.nip05 as string | undefined,
-                  addedAt: r.addedAt as number,
-                  addedInEpoch: r.addedInEpoch as string,
-                  removedAt: r.removedAt as number | undefined,
-                  removedInEpoch: r.removedInEpoch as string | undefined,
-                }) as MemberRecord,
-            );
+          const allRecords = yield* runtime.storage.getAllRecords("_members");
+          return allRecords.filter((record) => !record._deleted).map(mapMemberRecord);
         }),
+      ),
 
-      setProfile: (profile) =>
+    setProfile: (profile) =>
+      ensureStorageOpen(
         Effect.gen(function* () {
-          const existing = yield* storage.getRecord("_members", identity.publicKey);
+          const existing = yield* runtime.storage.getRecord("_members", identity.publicKey);
           if (!existing) {
             return yield* new ValidationError({
               message: "Current user is not a member",
@@ -460,8 +540,93 @@ export function createTablinum<S extends SchemaConfig>(
             ...profile,
           });
         }),
-    };
+      ),
+  };
+}
 
-    return dbHandle;
+export function createTablinum<S extends SchemaConfig>(
+  config: TablinumConfig<S>,
+): Effect.Effect<DatabaseHandle<S>, ValidationError | StorageError | CryptoError, Scope.Scope> {
+  return Effect.gen(function* () {
+    yield* validateConfig(config);
+    const runtimeConfig = yield* resolveRuntimeConfig(config);
+
+    const schemaEntries = Object.entries(config.schema) as CollectionEntry[];
+    const { dbNameResolved, identity, epochStore } = yield* resolveBootstrapState(runtimeConfig);
+
+    const runtimeScope = yield* Scope.make();
+    yield* Effect.addFinalizer((exit) => Scope.close(runtimeScope, exit));
+    const runtime = yield* createRuntimeContext(runtimeScope, dbNameResolved, {
+      ...config.schema,
+      _members: membersCollectionDef,
+    });
+    const giftWrapHandle = createEpochGiftWrapHandle(identity.privateKey, epochStore);
+    let notifyAuthor: ((pubkey: string) => void) | undefined;
+    const syncHandle = createSyncHandle(
+      runtime.storage,
+      giftWrapHandle,
+      runtime.relayHandle,
+      runtime.publishQueue,
+      runtime.syncStatus,
+      runtime.watchCtx,
+      runtimeConfig.relays,
+      epochStore,
+      identity.privateKey,
+      identity.publicKey,
+      dbNameResolved,
+      config.onSyncError ? (error) => reportSyncError(config.onSyncError, error) : undefined,
+      (pubkey) => notifyAuthor?.(pubkey),
+      config.onRemoved,
+      config.onMembersChanged,
+    );
+    const onWrite = createOnWrite(
+      runtime.storage,
+      giftWrapHandle,
+      syncHandle.publishLocal,
+      config.onSyncError,
+    );
+    const memberService = createMemberService(
+      {
+        storage: runtime.storage,
+        watchCtx: runtime.watchCtx,
+        epochStore,
+        onWrite,
+        onMembersChanged: config.onMembersChanged,
+      },
+      runtime.relayHandle,
+      runtimeConfig.relays,
+    );
+    notifyAuthor = memberService.onNewAuthor;
+    const allSchemaEntries = [...schemaEntries, ["_members", membersCollectionDef] as const];
+    const handles = buildCollectionHandles({
+      schemaEntries: allSchemaEntries,
+      storage: runtime.storage,
+      watchCtx: runtime.watchCtx,
+      onWrite,
+    });
+
+    yield* syncHandle.startSubscription();
+
+    const selfMember = yield* runtime.storage.getRecord("_members", identity.publicKey);
+    if (!selfMember) {
+      yield* memberService.putMemberRecord({
+        id: identity.publicKey,
+        addedAt: Date.now(),
+        addedInEpoch: getCurrentEpoch(epochStore).id,
+      });
+    }
+
+    return createDatabaseHandle({
+      runtimeConfig,
+      dbNameResolved,
+      schemaEntries: allSchemaEntries,
+      identity,
+      epochStore,
+      runtime,
+      handles,
+      syncHandle,
+      putMemberRecord: memberService.putMemberRecord,
+      onSyncError: config.onSyncError,
+    });
   });
 }

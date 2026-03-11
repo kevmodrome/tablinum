@@ -3,6 +3,7 @@ import type { CollectionDef, CollectionFields } from "../schema/collection.ts";
 import type { InferRecord } from "../schema/types.ts";
 import type { CollectionHandle } from "../crud/collection-handle.ts";
 import { ClosedError } from "../errors.ts";
+import { createDeferred } from "./deferred.ts";
 import {
   wrapWhereClause,
   wrapOrderByBuilder,
@@ -14,19 +15,9 @@ export class Collection<C extends CollectionDef<CollectionFields>> {
   error = $state<Error | null>(null);
 
   #handle: CollectionHandle<C> | null = null;
-  #ready!: Promise<void>;
-  #resolveReady!: () => void;
-  #rejectReady!: (err: Error) => void;
-  #readySettled = false;
+  #ready = createDeferred<void>();
   #version = $state(0);
   #watchAbort: AbortController | null = null;
-
-  constructor() {
-    this.#ready = new Promise<void>((resolve, reject) => {
-      this.#resolveReady = resolve;
-      this.#rejectReady = reject;
-    });
-  }
 
   /** @internal Called by Tablinum after the core handle is available. */
   _bind(handle: CollectionHandle<C>): void {
@@ -44,12 +35,10 @@ export class Collection<C extends CollectionDef<CollectionFields>> {
   }
 
   #settleReady(err?: Error): void {
-    if (this.#readySettled) return;
-    this.#readySettled = true;
     if (err) {
-      this.#rejectReady(err);
+      this.#ready.reject(err);
     } else {
-      this.#resolveReady();
+      this.#ready.resolve();
     }
   }
 
@@ -59,7 +48,7 @@ export class Collection<C extends CollectionDef<CollectionFields>> {
     this.#watchAbort = abort;
 
     Effect.runPromise(
-      Stream.runForEach(this.#handle.watch(), (records) =>
+      Stream.runForEach(this.#handle.watch(), (_records) =>
         Effect.sync(() => {
           if (!abort.signal.aborted) {
             this.#version++;
@@ -84,7 +73,7 @@ export class Collection<C extends CollectionDef<CollectionFields>> {
   };
 
   #run = async <R>(getEffect: () => Effect.Effect<R, unknown>): Promise<R> => {
-    await this.#ready;
+    await this.#ready.promise;
     return Effect.runPromise(getEffect());
   };
 
@@ -129,7 +118,7 @@ export class Collection<C extends CollectionDef<CollectionFields>> {
     return wrapWhereClause(
       () => this.#handleOrThrow().where(field),
       this.#touchVersion,
-      this.#ready,
+      this.#ready.promise,
     );
   };
 
@@ -139,7 +128,7 @@ export class Collection<C extends CollectionDef<CollectionFields>> {
     return wrapOrderByBuilder(
       () => this.#handleOrThrow().orderBy(field),
       this.#touchVersion,
-      this.#ready,
+      this.#ready.promise,
     );
   };
 

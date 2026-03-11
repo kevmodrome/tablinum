@@ -1,9 +1,11 @@
 import { Effect } from "effect";
-import { wrapEvent, unwrapEvent, type Rumor } from "nostr-tools/nip59";
+import { wrapEvent, unwrapEvent } from "nostr-tools/nip59";
 import type { NostrEvent, UnsignedEvent } from "nostr-tools/pure";
 import { CryptoError } from "../errors.ts";
 import type { EpochStore } from "../db/epoch.ts";
 import { getCurrentPublicKey, getDecryptionKey } from "../db/epoch.ts";
+
+type Rumor = ReturnType<typeof unwrapEvent>;
 
 export interface GiftWrapHandle {
   readonly wrap: (rumor: Partial<UnsignedEvent>) => Effect.Effect<NostrEvent, CryptoError>;

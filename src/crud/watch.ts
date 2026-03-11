@@ -24,8 +24,7 @@ export function watchCollection<T>(
   mapRecord?: (record: Record<string, unknown>) => T,
 ): Stream.Stream<ReadonlyArray<T>, StorageError> {
   const query = (): Effect.Effect<ReadonlyArray<T>, StorageError> =>
-    Effect.gen(function* () {
-      const all = yield* storage.getAllRecords(collectionName);
+    Effect.map(storage.getAllRecords(collectionName), (all) => {
       const filtered = all.filter((r) => !r._deleted && (filter ? filter(r) : true));
       return mapRecord ? filtered.map(mapRecord) : (filtered as unknown as ReadonlyArray<T>);
     });

@@ -3,14 +3,54 @@ import { generateSecretKey, getPublicKey } from "nostr-tools/pure";
 import {
   createEpochKey,
   createEpochStore,
+  createEpochStoreFromInputs,
   addEpoch,
   getCurrentEpoch,
   getCurrentPublicKey,
   getAllPublicKeys,
   getDecryptionKey,
+  exportEpochKeys,
   bytesToHex,
   hexToBytes,
+  persistEpochs,
+  loadPersistedEpochs,
 } from "../../src/db/epoch.ts";
+
+function withLocalStorage(test: (storage: Storage) => void): void {
+  const original = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  const values = new Map<string, string>();
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      values.set(key, value);
+    },
+    removeItem: (key: string) => {
+      values.delete(key);
+    },
+    clear: () => {
+      values.clear();
+    },
+    key: (index: number) => [...values.keys()][index] ?? null,
+    get length() {
+      return values.size;
+    },
+  } as Storage;
+
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: storage,
+  });
+
+  try {
+    test(storage);
+  } finally {
+    if (original) {
+      Object.defineProperty(globalThis, "localStorage", original);
+    } else {
+      Reflect.deleteProperty(globalThis, "localStorage");
+    }
+  }
+}
 
 describe("epoch", () => {
   const makeKeyHex = () => bytesToHex(generateSecretKey());
@@ -84,5 +124,56 @@ describe("epoch", () => {
     expect(e1.parentEpoch).toBeUndefined();
     expect(e2.parentEpoch).toBe("e1");
     expect(e3.parentEpoch).toBe("e2");
+  });
+
+  it("builds an epoch store from ordered input keys", () => {
+    const epochKeys = [
+      { epochId: "e1", key: makeKeyHex() },
+      { epochId: "e2", key: makeKeyHex() },
+      { epochId: "e3", key: makeKeyHex() },
+    ] as const;
+
+    const store = createEpochStoreFromInputs(epochKeys, {
+      createdAtBase: 1000,
+    });
+
+    expect(store.currentEpochId).toBe("e3");
+    expect(store.epochs.get("e2")!.parentEpoch).toBe("e1");
+    expect(store.epochs.get("e3")!.parentEpoch).toBe("e2");
+    expect(exportEpochKeys(store)).toEqual(epochKeys);
+  });
+
+  it("persists and reloads epoch state", () => {
+    withLocalStorage(() => {
+      const k1 = makeKeyHex();
+      const k2 = makeKeyHex();
+      const e1 = createEpochKey("e1", k1, 1000, "c1");
+      const e2 = createEpochKey("e2", k2, 2000, "c2", "e1");
+      const store = createEpochStore(e1);
+      addEpoch(store, e2);
+      store.currentEpochId = "e2";
+
+      persistEpochs(store, "todos");
+      const persisted = loadPersistedEpochs("todos");
+
+      expect(persisted).not.toBeNull();
+      expect(persisted!.currentEpochId).toBe("e2");
+      expect(Array.from(persisted!.epochs.keys())).toEqual(["e1", "e2"]);
+      expect(persisted!.epochs.get("e2")!.parentEpoch).toBe("e1");
+    });
+  });
+
+  it("rejects invalid persisted epoch state", () => {
+    withLocalStorage((storage) => {
+      storage.setItem(
+        "tablinum-epochs-todos",
+        JSON.stringify({
+          epochs: [{ id: "e1", privateKey: "bad", createdAt: 1000, createdBy: "c1" }],
+          currentEpochId: "e1",
+        }),
+      );
+
+      expect(loadPersistedEpochs("todos")).toBeNull();
+    });
   });
 });

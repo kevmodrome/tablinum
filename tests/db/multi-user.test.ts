@@ -5,17 +5,18 @@ import { generateSecretKey, getPublicKey } from "nostr-tools/pure";
 import { field } from "../../src/schema/field.ts";
 import { collection } from "../../src/schema/collection.ts";
 import { createTablinum } from "../../src/db/create-tablinum.ts";
+import { bytesToHex } from "../../src/db/epoch.ts";
 
 describe("multi-user", () => {
   it.effect("exportInvite returns epoch keys and config", () =>
     Effect.gen(function* () {
-      const groupSk = generateSecretKey();
+      const initialEpochKey = generateSecretKey();
       const todos = collection("todos", { title: field.string() });
 
       const db = yield* createTablinum({
         schema: { todos },
         relays: ["wss://relay.example.com"],
-        groupPrivateKey: groupSk,
+        epochKeys: [{ epochId: "epoch-0", key: bytesToHex(initialEpochKey) }],
         dbName: "test-invite",
       });
 
@@ -25,18 +26,18 @@ describe("multi-user", () => {
       expect(invite.epochKeys).toHaveLength(1);
       expect(invite.epochKeys[0].key).toHaveLength(64);
 
-      // Epoch key in invite should match the group pubkey derivation
-      const groupPk = getPublicKey(groupSk);
+      // Epoch key in invite should match the first epoch pubkey derivation
+      const epochPk = getPublicKey(initialEpochKey);
       const inviteBytes = new Uint8Array(32);
       const key = invite.epochKeys[0].key;
       for (let i = 0; i < 32; i++) {
         inviteBytes[i] = parseInt(key.slice(i * 2, i * 2 + 2), 16);
       }
-      expect(getPublicKey(inviteBytes)).toBe(groupPk);
+      expect(getPublicKey(inviteBytes)).toBe(epochPk);
     }),
   );
 
-  it.effect("exportInvite without explicit group key auto-generates epoch keys", () =>
+  it.effect("exportInvite without explicit epoch keys auto-generates epoch keys", () =>
     Effect.gen(function* () {
       const todos = collection("todos", { title: field.string() });
 
@@ -49,7 +50,7 @@ describe("multi-user", () => {
       const invite = db.exportInvite();
       expect(invite.epochKeys).toHaveLength(1);
       expect(invite.epochKeys[0].key).toHaveLength(64);
-      // The epoch key should be a separate group key, not the user's personal key
+      // The epoch key should be separate from the user's personal key
       expect(invite.epochKeys[0].key).not.toBe(db.exportKey());
     }),
   );
@@ -124,9 +125,9 @@ describe("multi-user", () => {
     }),
   );
 
-  it.effect("group key changes target public key for gift wraps", () =>
+  it.effect("epoch key changes target public key for gift wraps", () =>
     Effect.gen(function* () {
-      const groupSk = generateSecretKey();
+      const initialEpochKey = generateSecretKey();
 
       const userSk = generateSecretKey();
       const userPk = getPublicKey(userSk);
@@ -137,11 +138,11 @@ describe("multi-user", () => {
         schema: { todos },
         relays: ["wss://relay.example.com"],
         privateKey: userSk,
-        groupPrivateKey: groupSk,
+        epochKeys: [{ epochId: "epoch-0", key: bytesToHex(initialEpochKey) }],
         dbName: "test-group-target",
       });
 
-      // The exported user key should be the user's key, not the group key
+      // The exported user key should be the user's identity key, not the epoch key
       expect(db.exportKey()).toHaveLength(64);
       const exportedPk = getPublicKey(
         new Uint8Array(
@@ -157,7 +158,7 @@ describe("multi-user", () => {
 
   it.effect("multi-user mode auto-registers current user as member", () =>
     Effect.gen(function* () {
-      const groupSk = generateSecretKey();
+      const initialEpochKey = generateSecretKey();
       const userSk = generateSecretKey();
       const userPk = getPublicKey(userSk);
 
@@ -167,7 +168,7 @@ describe("multi-user", () => {
         schema: { todos },
         relays: ["wss://relay.example.com"],
         privateKey: userSk,
-        groupPrivateKey: groupSk,
+        epochKeys: [{ epochId: "epoch-0", key: bytesToHex(initialEpochKey) }],
         dbName: "test-auto-member",
       });
 
@@ -179,7 +180,7 @@ describe("multi-user", () => {
 
   it.effect("members handle watch() emits self-registered member", () =>
     Effect.gen(function* () {
-      const groupSk = generateSecretKey();
+      const initialEpochKey = generateSecretKey();
       const userSk = generateSecretKey();
       const userPk = getPublicKey(userSk);
 
@@ -189,7 +190,7 @@ describe("multi-user", () => {
         schema: { todos },
         relays: ["wss://relay.example.com"],
         privateKey: userSk,
-        groupPrivateKey: groupSk,
+        epochKeys: [{ epochId: "epoch-0", key: bytesToHex(initialEpochKey) }],
         dbName: "test-members-watch",
       });
 
@@ -203,7 +204,7 @@ describe("multi-user", () => {
   );
 
   it("members watch via runFork populates items (mimics Svelte Collection)", async () => {
-    const groupSk = generateSecretKey();
+    const initialEpochKey = generateSecretKey();
     const userSk = generateSecretKey();
     const userPk = getPublicKey(userSk);
 
@@ -216,7 +217,7 @@ describe("multi-user", () => {
         schema: { todos },
         relays: ["wss://relay.example.com"],
         privateKey: userSk,
-        groupPrivateKey: groupSk,
+        epochKeys: [{ epochId: "epoch-0", key: bytesToHex(initialEpochKey) }],
         dbName: "test-members-fork-watch",
       }).pipe(Effect.provideService(Scope.Scope, scope)),
     );

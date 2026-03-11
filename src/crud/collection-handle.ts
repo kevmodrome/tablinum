@@ -37,7 +37,7 @@ function mapRecord<C extends CollectionDef<CollectionFields>>(
   return fields as InferRecord<C>;
 }
 
-export type OnWriteCallback = (event: StoredEvent) => Effect.Effect<void>;
+export type OnWriteCallback = (event: StoredEvent) => Effect.Effect<void, StorageError>;
 
 export function createCollectionHandle<C extends CollectionDef<CollectionFields>>(
   def: C,
@@ -49,6 +49,18 @@ export function createCollectionHandle<C extends CollectionDef<CollectionFields>
   onWrite?: OnWriteCallback,
 ): CollectionHandle<C> {
   const collectionName = def.name;
+
+  const commitEvent = (event: StoredEvent): Effect.Effect<void, StorageError> =>
+    Effect.gen(function* () {
+      yield* storage.putEvent(event);
+      yield* applyEvent(storage, event);
+      if (onWrite) yield* onWrite(event);
+      yield* notifyChange(watchCtx, {
+        collection: collectionName,
+        recordId: event.recordId,
+        kind: event.kind,
+      });
+    });
 
   const handle: CollectionHandle<C> = {
     add: (data) =>
@@ -65,14 +77,7 @@ export function createCollectionHandle<C extends CollectionDef<CollectionFields>
           data: fullRecord as unknown as Record<string, unknown>,
           createdAt: Date.now(),
         };
-        yield* storage.putEvent(event);
-        yield* applyEvent(storage, event);
-        if (onWrite) yield* onWrite(event);
-        yield* notifyChange(watchCtx, {
-          collection: collectionName,
-          recordId: id,
-          kind: "create",
-        });
+        yield* commitEvent(event);
         return id;
       }),
 
@@ -98,14 +103,7 @@ export function createCollectionHandle<C extends CollectionDef<CollectionFields>
           data: merged as Record<string, unknown>,
           createdAt: Date.now(),
         };
-        yield* storage.putEvent(event);
-        yield* applyEvent(storage, event);
-        if (onWrite) yield* onWrite(event);
-        yield* notifyChange(watchCtx, {
-          collection: collectionName,
-          recordId: id,
-          kind: "update",
-        });
+        yield* commitEvent(event);
       }),
 
     delete: (id) =>
@@ -126,14 +124,7 @@ export function createCollectionHandle<C extends CollectionDef<CollectionFields>
           data: null,
           createdAt: Date.now(),
         };
-        yield* storage.putEvent(event);
-        yield* applyEvent(storage, event);
-        if (onWrite) yield* onWrite(event);
-        yield* notifyChange(watchCtx, {
-          collection: collectionName,
-          recordId: id,
-          kind: "delete",
-        });
+        yield* commitEvent(event);
       }),
 
     get: (id) =>
@@ -149,17 +140,16 @@ export function createCollectionHandle<C extends CollectionDef<CollectionFields>
       }),
 
     first: () =>
-      Effect.gen(function* () {
-        const all = yield* storage.getAllRecords(collectionName);
+      Effect.map(storage.getAllRecords(collectionName), (all) => {
         const found = all.find((r) => !r._deleted);
         return found ? mapRecord<C>(found) : null;
       }),
 
     count: () =>
-      Effect.gen(function* () {
-        const all = yield* storage.getAllRecords(collectionName);
-        return all.filter((r) => !r._deleted).length;
-      }),
+      Effect.map(
+        storage.getAllRecords(collectionName),
+        (all) => all.filter((r) => !r._deleted).length,
+      ),
 
     watch: () =>
       watchCollection<InferRecord<C>>(watchCtx, storage, collectionName, undefined, mapRecord),

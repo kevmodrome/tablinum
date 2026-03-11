@@ -1,5 +1,6 @@
 import { Effect, Ref } from "effect";
 import type { NostrEvent } from "nostr-tools/pure";
+import type { Filter } from "nostr-tools/filter";
 import { unwrapEvent } from "nostr-tools/nip59";
 import type { IDBStorageHandle, StoredEvent, StoredGiftWrap } from "../storage/idb.ts";
 import { applyEvent } from "../storage/records-store.ts";
@@ -42,6 +43,17 @@ export function createSyncHandle(
 ): SyncHandle {
   const getSubscriptionPubKeys = (): string[] => {
     return getAllPublicKeys(epochStore);
+  };
+
+  const notifyCollectionUpdated = (collection: string) =>
+    notifyChange(watchCtx, {
+      collection,
+      recordId: "",
+      kind: "create",
+    });
+
+  const forkHandled = (effect: Effect.Effect<void>) => {
+    Effect.runFork(effect.pipe(Effect.tapError((e) => Effect.sync(() => onSyncError?.(e)))));
   };
 
   // Check if a write should be rejected based on member removal
@@ -143,6 +155,14 @@ export function createSyncHandle(
       return collectionName;
     });
 
+  const processRealtimeGiftWrap = (remoteGw: NostrEvent): Effect.Effect<void> =>
+    Effect.gen(function* () {
+      const result = yield* Effect.result(processGiftWrap(remoteGw));
+      if (result._tag === "Success" && result.success) {
+        yield* notifyCollectionUpdated(result.success);
+      }
+    });
+
   // Process a rotation event received on personal subscription
   const processRotationGiftWrap = (
     remoteGw: NostrEvent,
@@ -211,6 +231,76 @@ export function createSyncHandle(
       return true;
     });
 
+  const subscribeAcrossRelays = (
+    filter: Filter,
+    onEvent: (event: NostrEvent) => Effect.Effect<void>,
+  ): Effect.Effect<void> =>
+    Effect.forEach(
+      relayUrls,
+      (url) =>
+        Effect.gen(function* () {
+          const subscribeResult = yield* Effect.result(
+            relay.subscribe(filter, url, (event) => {
+              forkHandled(onEvent(event));
+            }),
+          );
+          if (subscribeResult._tag === "Failure") {
+            onSyncError?.(subscribeResult.failure);
+          }
+        }),
+      { discard: true },
+    );
+
+  const syncRelay = (
+    url: string,
+    pubKeys: ReadonlyArray<string>,
+    changedCollections: Set<string>,
+  ): Effect.Effect<void, StorageError> =>
+    Effect.gen(function* () {
+      const reconcileResult = yield* Effect.result(
+        reconcileWithRelay(storage, relay, url, Array.from(pubKeys)),
+      );
+      if (reconcileResult._tag === "Failure") {
+        onSyncError?.(reconcileResult.failure);
+        return;
+      }
+
+      const { haveIds, needIds } = reconcileResult.success;
+
+      if (needIds.length > 0) {
+        const fetchResult = yield* Effect.result(relay.fetchEvents(needIds, url));
+        if (fetchResult._tag === "Failure") {
+          onSyncError?.(fetchResult.failure);
+        } else {
+          for (const remoteGw of fetchResult.success) {
+            const processed = yield* Effect.result(processGiftWrap(remoteGw));
+            if (processed._tag === "Success" && processed.success) {
+              changedCollections.add(processed.success);
+            }
+          }
+        }
+      }
+
+      if (haveIds.length > 0) {
+        yield* Effect.forEach(
+          haveIds,
+          (id) =>
+            Effect.gen(function* () {
+              const giftWrap = yield* storage.getGiftWrap(id);
+              if (giftWrap) {
+                const pubResult = yield* Effect.result(
+                  relay.publish(giftWrap.event as unknown as NostrEvent, [url]),
+                );
+                if (pubResult._tag === "Failure") {
+                  onSyncError?.(pubResult.failure);
+                }
+              }
+            }),
+          { discard: true },
+        );
+      }
+    });
+
   const handle: SyncHandle = {
     sync: () =>
       Effect.gen(function* () {
@@ -219,49 +309,22 @@ export function createSyncHandle(
 
         const changedCollections = new Set<string>();
 
-        try {
+        yield* Effect.gen(function* () {
           const pubKeys = getSubscriptionPubKeys();
-
-          for (const url of relayUrls) {
-            const reconcileResult = yield* Effect.result(
-              reconcileWithRelay(storage, relay, url, pubKeys),
-            );
-
-            if (reconcileResult._tag === "Failure") continue;
-
-            const { haveIds, needIds } = reconcileResult.success;
-
-            // Download missing gift wraps
-            if (needIds.length > 0) {
-              const fetchResult = yield* Effect.result(relay.fetchEvents(needIds, url));
-
-              if (fetchResult._tag === "Success") {
-                for (const remoteGw of fetchResult.success) {
-                  const result = yield* Effect.result(processGiftWrap(remoteGw));
-                  if (result._tag === "Success" && result.success) {
-                    changedCollections.add(result.success);
-                  }
-                }
-              }
-            }
-
-            // Upload gift wraps the relay is missing
-            if (haveIds.length > 0) {
-              for (const id of haveIds) {
-                const gw = yield* storage.getGiftWrap(id);
-                if (gw) {
-                  yield* Effect.result(relay.publish(gw.event as unknown as NostrEvent, [url]));
-                }
-              }
-            }
-          }
+          yield* Effect.forEach(relayUrls, (url) => syncRelay(url, pubKeys, changedCollections), {
+            discard: true,
+          });
 
           // Flush pending publications
           yield* Effect.result(publishQueue.flush(relayUrls));
-        } finally {
-          yield* notifyReplayComplete(watchCtx, [...changedCollections]);
-          yield* syncStatus.set("idle");
-        }
+        }).pipe(
+          Effect.ensuring(
+            Effect.gen(function* () {
+              yield* notifyReplayComplete(watchCtx, [...changedCollections]);
+              yield* syncStatus.set("idle");
+            }),
+          ),
+        );
       }),
 
     publishLocal: (giftWrap) =>
@@ -278,71 +341,18 @@ export function createSyncHandle(
     startSubscription: () =>
       Effect.gen(function* () {
         const pubKeys = getSubscriptionPubKeys();
-
-        // Subscribe to all epoch public keys for group data
-        for (const url of relayUrls) {
-          const subResult = yield* Effect.result(
-            relay.subscribe({ kinds: [1059], "#p": pubKeys }, url, (evt: NostrEvent) => {
-              Effect.runFork(
-                Effect.gen(function* () {
-                  const result = yield* Effect.result(processGiftWrap(evt));
-                  if (result._tag === "Success" && result.success) {
-                    yield* notifyChange(watchCtx, {
-                      collection: result.success,
-                      recordId: "",
-                      kind: "create",
-                    });
-                  }
-                }),
-              );
-            }),
-          );
-          if (subResult._tag === "Failure") {
-            if (onSyncError) onSyncError(subResult.failure);
-          }
-        }
+        yield* subscribeAcrossRelays({ kinds: [1059], "#p": pubKeys }, processRealtimeGiftWrap);
 
         // Subscribe to personal pubkey for rotation events (multi-user only)
         if (!pubKeys.includes(personalPublicKey)) {
-          for (const url of relayUrls) {
-            yield* Effect.result(
-              relay.subscribe(
-                { kinds: [1059], "#p": [personalPublicKey] },
-                url,
-                (evt: NostrEvent) => {
-                  Effect.runFork(
-                    Effect.gen(function* () {
-                      yield* Effect.result(processRotationGiftWrap(evt));
-                    }),
-                  );
-                },
-              ),
-            );
-          }
+          yield* subscribeAcrossRelays({ kinds: [1059], "#p": [personalPublicKey] }, (event) =>
+            Effect.result(processRotationGiftWrap(event)).pipe(Effect.asVoid),
+          );
         }
       }),
 
     addEpochSubscription: (publicKey: string) =>
-      Effect.gen(function* () {
-        for (const url of relayUrls) {
-          yield* Effect.result(
-            relay.subscribe({ kinds: [1059], "#p": [publicKey] }, url, (evt: NostrEvent) => {
-              Effect.runFork(
-                Effect.gen(function* () {
-                  const result = yield* Effect.result(processGiftWrap(evt));
-                  if (result._tag === "Success" && result.success) {
-                    yield* notifyChange(watchCtx, {
-                      collection: result.success,
-                      recordId: "",
-                      kind: "create",
-                    });
-                  }
-                }),
-              );
-            }),
-          );
-        }
-      }),
+      subscribeAcrossRelays({ kinds: [1059], "#p": [publicKey] }, processRealtimeGiftWrap),
   };
 
   return handle;

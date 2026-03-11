@@ -1,3 +1,4 @@
+import { Schema } from "effect";
 import { generateSecretKey } from "nostr-tools/pure";
 import { wrapEvent } from "nostr-tools/nip59";
 import type { NostrEvent } from "nostr-tools/pure";
@@ -16,7 +17,7 @@ export interface RotationData {
   readonly epochId: string;
   readonly epochKey: string;
   readonly parentEpoch: string;
-  readonly removedMembers: string[];
+  readonly removedMembers: readonly string[];
 }
 
 export interface RemovalNotice {
@@ -24,6 +25,25 @@ export interface RemovalNotice {
   readonly epochId: string;
   readonly removedBy: string;
 }
+
+const HexKeySchema = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/i));
+
+const RotationDataSchema = Schema.Struct({
+  _rotation: Schema.Literal(true),
+  epochId: Schema.String,
+  epochKey: HexKeySchema,
+  parentEpoch: Schema.String,
+  removedMembers: Schema.Array(Schema.String),
+});
+
+const RemovalNoticeSchema = Schema.Struct({
+  _removed: Schema.Literal(true),
+  epochId: Schema.String,
+  removedBy: Schema.String,
+});
+
+const decodeRotationData = Schema.decodeUnknownSync(Schema.fromJsonString(RotationDataSchema));
+const decodeRemovalNotice = Schema.decodeUnknownSync(Schema.fromJsonString(RemovalNoticeSchema));
 
 export function createRotation(
   epochStore: EpochStore,
@@ -87,10 +107,7 @@ export function createRotation(
 export function parseRotationEvent(content: string, dTag: string): RotationData | null {
   if (!dTag.startsWith("_system:rotation:")) return null;
   try {
-    const data = JSON.parse(content);
-    if (data._rotation !== true) return null;
-    if (typeof data.epochId !== "string" || typeof data.epochKey !== "string") return null;
-    return data as RotationData;
+    return decodeRotationData(content);
   } catch {
     return null;
   }
@@ -99,10 +116,7 @@ export function parseRotationEvent(content: string, dTag: string): RotationData 
 export function parseRemovalNotice(content: string, dTag: string): RemovalNotice | null {
   if (!dTag.startsWith("_system:removed:")) return null;
   try {
-    const data = JSON.parse(content);
-    if (data._removed !== true) return null;
-    if (typeof data.epochId !== "string" || typeof data.removedBy !== "string") return null;
-    return data as RemovalNotice;
+    return decodeRemovalNotice(content);
   } catch {
     return null;
   }

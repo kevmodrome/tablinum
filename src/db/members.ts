@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import type { CollectionDef } from "../schema/collection.ts";
 import type { RelayHandle } from "../sync/relay.ts";
 import { RelayError } from "../errors.ts";
@@ -43,6 +43,13 @@ export interface MemberRecord {
   readonly removedInEpoch?: string;
 }
 
+export interface AuthorProfile {
+  readonly name?: string;
+  readonly picture?: string;
+  readonly about?: string;
+  readonly nip05?: string;
+}
+
 export const membersCollectionDef: CollectionDef = {
   _tag: "CollectionDef",
   name: "_members",
@@ -59,11 +66,20 @@ export const membersCollectionDef: CollectionDef = {
   indices: [],
 };
 
+const AuthorProfileSchema = Schema.Struct({
+  name: Schema.optionalKey(Schema.String),
+  picture: Schema.optionalKey(Schema.String),
+  about: Schema.optionalKey(Schema.String),
+  nip05: Schema.optionalKey(Schema.String),
+});
+
+const decodeAuthorProfile = Schema.decodeUnknownSync(Schema.fromJsonString(AuthorProfileSchema));
+
 export function fetchAuthorProfile(
   relay: RelayHandle,
   relayUrls: readonly string[],
   pubkey: string,
-): Effect.Effect<Record<string, unknown> | null, RelayError> {
+): Effect.Effect<AuthorProfile | null, RelayError> {
   return Effect.gen(function* () {
     for (const url of relayUrls) {
       const result = yield* Effect.result(
@@ -71,7 +87,7 @@ export function fetchAuthorProfile(
       );
       if (result._tag === "Success" && result.success.length > 0) {
         try {
-          return JSON.parse(result.success[0].content);
+          return decodeAuthorProfile(result.success[0].content);
         } catch {
           return null;
         }

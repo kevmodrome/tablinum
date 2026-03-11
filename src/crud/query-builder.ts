@@ -238,16 +238,8 @@ function makeQueryBuilder<T>(ctx: QueryContext, plan: QueryPlan): QueryBuilder<T
     limit: (n) => makeQueryBuilder(ctx, { ...plan, limit: n }),
     get: () => executeQuery<T>(ctx, plan),
     first: () =>
-      Effect.gen(function* () {
-        const limitedPlan = { ...plan, limit: 1 };
-        const results = yield* executeQuery<T>(ctx, limitedPlan);
-        return results[0] ?? null;
-      }),
-    count: () =>
-      Effect.gen(function* () {
-        const results = yield* executeQuery<T>(ctx, plan);
-        return results.length;
-      }),
+      Effect.map(executeQuery<T>(ctx, { ...plan, limit: 1 }), (results) => results[0] ?? null),
+    count: () => Effect.map(executeQuery<T>(ctx, plan), (results) => results.length),
     watch: () => watchQuery<T>(ctx, plan),
   };
 }
@@ -266,16 +258,8 @@ function makeOrderByBuilder<T>(ctx: QueryContext, plan: QueryPlan): OrderByBuild
     limit: (n) => makeOrderByBuilder(ctx, { ...plan, limit: n }),
     get: () => executeQuery<T>(ctx, plan),
     first: () =>
-      Effect.gen(function* () {
-        const limitedPlan = { ...plan, limit: 1 };
-        const results = yield* executeQuery<T>(ctx, limitedPlan);
-        return results[0] ?? null;
-      }),
-    count: () =>
-      Effect.gen(function* () {
-        const results = yield* executeQuery<T>(ctx, plan);
-        return results.length;
-      }),
+      Effect.map(executeQuery<T>(ctx, { ...plan, limit: 1 }), (results) => results[0] ?? null),
+    count: () => Effect.map(executeQuery<T>(ctx, plan), (results) => results.length),
     watch: () => watchQuery<T>(ctx, plan),
   };
 }

@@ -9,8 +9,8 @@ import { createEpochKey, createEpochStore, bytesToHex } from "../../src/db/epoch
 
 describe("key rotation", () => {
   it("creates a rotation with new epoch and wrapped events", () => {
-    const groupKey = bytesToHex(generateSecretKey());
-    const epoch0 = createEpochKey("epoch-0", groupKey, Date.now(), "creator");
+    const epochKey = bytesToHex(generateSecretKey());
+    const epoch0 = createEpochKey("epoch-0", epochKey, Date.now(), "creator");
     const store = createEpochStore(epoch0);
 
     const senderSk = generateSecretKey();
@@ -31,8 +31,8 @@ describe("key rotation", () => {
   });
 
   it("creates no wrapped events when sender is the only remaining member", () => {
-    const groupKey = bytesToHex(generateSecretKey());
-    const epoch0 = createEpochKey("epoch-0", groupKey, Date.now(), "creator");
+    const epochKey = bytesToHex(generateSecretKey());
+    const epoch0 = createEpochKey("epoch-0", epochKey, Date.now(), "creator");
     const store = createEpochStore(epoch0);
 
     const senderSk = generateSecretKey();
@@ -47,8 +47,8 @@ describe("key rotation", () => {
   });
 
   it("new epoch has a unique key different from parent", () => {
-    const groupKey = bytesToHex(generateSecretKey());
-    const epoch0 = createEpochKey("epoch-0", groupKey, Date.now(), "creator");
+    const epochKey = bytesToHex(generateSecretKey());
+    const epoch0 = createEpochKey("epoch-0", epochKey, Date.now(), "creator");
     const store = createEpochStore(epoch0);
 
     const senderSk = generateSecretKey();
@@ -99,6 +99,21 @@ describe("key rotation", () => {
     ).toBeNull();
     expect(
       parseRotationEvent(JSON.stringify({ _rotation: true, epochId: "e1" }), "_system:rotation:x"),
+    ).toBeNull();
+  });
+
+  it("rejects rotation with invalid epoch key payload", () => {
+    expect(
+      parseRotationEvent(
+        JSON.stringify({
+          _rotation: true,
+          epochId: "e1",
+          epochKey: "short",
+          parentEpoch: "e0",
+          removedMembers: [],
+        }),
+        "_system:rotation:x",
+      ),
     ).toBeNull();
   });
 

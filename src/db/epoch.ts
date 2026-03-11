@@ -1,4 +1,10 @@
+import { Schema } from "effect";
 import { getPublicKey } from "nostr-tools/pure";
+
+export interface EpochKeyInput {
+  readonly epochId: string;
+  readonly key: string;
+}
 
 export interface EpochKey {
   readonly id: string;
@@ -13,6 +19,41 @@ export interface EpochStore {
   readonly epochs: Map<string, EpochKey>;
   readonly keysByPublicKey: Map<string, Uint8Array>;
   currentEpochId: string;
+}
+
+const HexKeySchema = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/i));
+
+export const EpochKeyInputSchema = Schema.Struct({
+  epochId: Schema.String,
+  key: HexKeySchema,
+});
+
+const PersistedEpochSchema = Schema.Struct({
+  id: Schema.String,
+  privateKey: HexKeySchema,
+  createdAt: Schema.Number,
+  createdBy: Schema.String,
+  parentEpoch: Schema.optionalKey(Schema.String),
+});
+
+const PersistedEpochStoreSchema = Schema.Struct({
+  epochs: Schema.Array(PersistedEpochSchema),
+  currentEpochId: Schema.String,
+});
+
+const decodePersistedEpochStore = Schema.decodeUnknownSync(
+  Schema.fromJsonString(PersistedEpochStoreSchema),
+);
+
+interface EpochStoreSnapshot {
+  readonly epochs: ReadonlyArray<{
+    readonly id: string;
+    readonly privateKey: string;
+    readonly createdAt: number;
+    readonly createdBy: string;
+    readonly parentEpoch?: string;
+  }>;
+  readonly currentEpochId: string;
 }
 
 export function hexToBytes(hex: string): Uint8Array {
@@ -52,6 +93,51 @@ export function addEpoch(store: EpochStore, epoch: EpochKey): void {
   store.keysByPublicKey.set(epoch.publicKey, hexToBytes(epoch.privateKey));
 }
 
+export function hydrateEpochStore(snapshot: EpochStoreSnapshot): EpochStore {
+  const [firstEpoch, ...remainingEpochs] = snapshot.epochs.map((epoch) =>
+    createEpochKey(epoch.id, epoch.privateKey, epoch.createdAt, epoch.createdBy, epoch.parentEpoch),
+  );
+  if (!firstEpoch) {
+    throw new Error("Epoch snapshot must contain at least one epoch");
+  }
+
+  const store = createEpochStore(firstEpoch);
+  for (const epoch of remainingEpochs) {
+    addEpoch(store, epoch);
+  }
+  store.currentEpochId = snapshot.currentEpochId;
+  return store;
+}
+
+export function createEpochStoreFromInputs(
+  epochKeys: ReadonlyArray<EpochKeyInput>,
+  options: {
+    readonly createdAtBase?: number | undefined;
+    readonly createdBy?: string | undefined;
+  } = {},
+): EpochStore {
+  if (epochKeys.length === 0) {
+    throw new Error("Epoch input must contain at least one key");
+  }
+
+  const createdAtBase = options.createdAtBase ?? Date.now();
+  const createdBy = options.createdBy ?? "";
+  const epochs = epochKeys.map((epochKey, index) =>
+    createEpochKey(
+      epochKey.epochId,
+      epochKey.key,
+      createdAtBase + index,
+      createdBy,
+      index > 0 ? epochKeys[index - 1]!.epochId : undefined,
+    ),
+  );
+
+  return hydrateEpochStore({
+    epochs,
+    currentEpochId: epochs[epochs.length - 1]!.id,
+  });
+}
+
 export function getCurrentEpoch(store: EpochStore): EpochKey {
   return store.epochs.get(store.currentEpochId)!;
 }
@@ -68,40 +154,39 @@ export function getDecryptionKey(store: EpochStore, publicKey: string): Uint8Arr
   return store.keysByPublicKey.get(publicKey);
 }
 
-export function persistEpochs(store: EpochStore, dbName: string): void {
-  if (typeof globalThis.localStorage === "undefined") return;
-  const data = {
-    epochs: Array.from(store.epochs.values()).map((e) => ({
-      id: e.id,
-      privateKey: e.privateKey,
-      createdAt: e.createdAt,
-      createdBy: e.createdBy,
-      parentEpoch: e.parentEpoch,
+export function exportEpochKeys(store: EpochStore): ReadonlyArray<EpochKeyInput> {
+  return Array.from(store.epochs.values())
+    .sort((a, b) => a.createdAt - b.createdAt)
+    .map((epoch) => ({ epochId: epoch.id, key: epoch.privateKey }));
+}
+
+function serializeEpochStore(store: EpochStore): EpochStoreSnapshot {
+  return {
+    epochs: Array.from(store.epochs.values()).map((epoch) => ({
+      id: epoch.id,
+      privateKey: epoch.privateKey,
+      createdAt: epoch.createdAt,
+      createdBy: epoch.createdBy,
+      ...(epoch.parentEpoch !== undefined ? { parentEpoch: epoch.parentEpoch } : {}),
     })),
     currentEpochId: store.currentEpochId,
   };
-  globalThis.localStorage.setItem(`tablinum-epochs-${dbName}`, JSON.stringify(data));
 }
 
-export function loadPersistedEpochs(
-  dbName: string,
-): { epochs: EpochKey[]; currentEpochId: string } | null {
+export function persistEpochs(store: EpochStore, dbName: string): void {
+  if (typeof globalThis.localStorage === "undefined") return;
+  globalThis.localStorage.setItem(
+    `tablinum-epochs-${dbName}`,
+    JSON.stringify(serializeEpochStore(store)),
+  );
+}
+
+export function loadPersistedEpochs(dbName: string): EpochStore | null {
   if (typeof globalThis.localStorage === "undefined") return null;
   const raw = globalThis.localStorage.getItem(`tablinum-epochs-${dbName}`);
   if (!raw) return null;
   try {
-    const data = JSON.parse(raw);
-    if (!Array.isArray(data.epochs) || typeof data.currentEpochId !== "string") return null;
-    const epochs: EpochKey[] = data.epochs.map((e: Record<string, unknown>) =>
-      createEpochKey(
-        e.id as string,
-        e.privateKey as string,
-        e.createdAt as number,
-        e.createdBy as string,
-        e.parentEpoch as string | undefined,
-      ),
-    );
-    return { epochs, currentEpochId: data.currentEpochId };
+    return hydrateEpochStore(decodePersistedEpochStore(raw));
   } catch {
     return null;
   }

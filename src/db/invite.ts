@@ -1,8 +1,20 @@
+import { Schema } from "effect";
+import { EpochKeyInputSchema, type EpochKeyInput } from "./epoch.ts";
+
 export interface Invite {
-  readonly epochKeys: Array<{ readonly epochId: string; readonly key: string }>;
+  readonly epochKeys: Array<EpochKeyInput>;
   readonly relays: string[];
   readonly dbName: string;
 }
+
+const InviteSchema = Schema.Struct({
+  epochKeys: Schema.Array(EpochKeyInputSchema),
+  relays: Schema.Array(Schema.String),
+  dbName: Schema.String,
+});
+
+const decodeInviteJson = Schema.decodeUnknownSync(Schema.UnknownFromJsonString);
+const decodeInvitePayload = Schema.decodeUnknownSync(InviteSchema);
 
 export function encodeInvite(invite: Invite): string {
   return btoa(JSON.stringify(invite));
@@ -11,60 +23,22 @@ export function encodeInvite(invite: Invite): string {
 export function decodeInvite(encoded: string): Invite {
   let raw: unknown;
   try {
-    raw = JSON.parse(atob(encoded));
+    raw = decodeInviteJson(atob(encoded));
   } catch {
     throw new Error("Invalid invite: failed to decode");
   }
 
-  if (typeof raw !== "object" || raw === null) {
-    throw new Error("Invalid invite: unexpected shape");
-  }
-
-  const obj = raw as Record<string, unknown>;
-
-  // Backward compat: legacy { groupKey } format → single epoch
-  if (typeof obj.groupKey === "string" && !obj.epochKeys) {
-    if (!/^[0-9a-f]{64}$/i.test(obj.groupKey)) {
-      throw new Error("Invalid invite: groupKey must be a 64-char hex string");
-    }
-    if (!Array.isArray(obj.relays) || !obj.relays.every((r: unknown) => typeof r === "string")) {
-      throw new Error("Invalid invite: unexpected shape");
-    }
-    if (typeof obj.dbName !== "string") {
-      throw new Error("Invalid invite: unexpected shape");
-    }
+  try {
+    const invite = decodeInvitePayload(raw);
     return {
-      epochKeys: [{ epochId: "epoch-0", key: obj.groupKey }],
-      relays: obj.relays as string[],
-      dbName: obj.dbName,
+      epochKeys: invite.epochKeys.map((epoch) => ({
+        epochId: epoch.epochId,
+        key: epoch.key,
+      })),
+      relays: [...invite.relays],
+      dbName: invite.dbName,
     };
-  }
-
-  // New format: { epochKeys, relays, dbName }
-  if (
-    !Array.isArray(obj.epochKeys) ||
-    !obj.epochKeys.every((e: unknown) => {
-      if (typeof e !== "object" || e === null) return false;
-      const entry = e as Record<string, unknown>;
-      return (
-        typeof entry.epochId === "string" &&
-        typeof entry.key === "string" &&
-        /^[0-9a-f]{64}$/i.test(entry.key)
-      );
-    }) ||
-    !Array.isArray(obj.relays) ||
-    !obj.relays.every((r: unknown) => typeof r === "string") ||
-    typeof obj.dbName !== "string"
-  ) {
+  } catch {
     throw new Error("Invalid invite: unexpected shape");
   }
-
-  return {
-    epochKeys: (obj.epochKeys as Array<{ epochId: string; key: string }>).map((e) => ({
-      epochId: e.epochId,
-      key: e.key,
-    })),
-    relays: obj.relays as string[],
-    dbName: obj.dbName,
-  };
 }

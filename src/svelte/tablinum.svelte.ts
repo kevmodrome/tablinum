@@ -1,5 +1,4 @@
 import { Effect, Exit, Scope } from "effect";
-import { SvelteMap } from "svelte/reactivity";
 import type { SchemaConfig } from "../schema/types.ts";
 import type { CollectionDef, CollectionFields } from "../schema/collection.ts";
 import type { DatabaseHandle, SyncStatus } from "../db/database-handle.ts";
@@ -11,6 +10,7 @@ import {
 } from "../db/create-tablinum.ts";
 import { Collection } from "./collection.svelte.ts";
 import { ClosedError } from "../errors.ts";
+import { createDeferred } from "./deferred.ts";
 
 export class Tablinum<S extends SchemaConfig> {
   status = $state<"initializing" | "ready" | "error" | "closed">("initializing");
@@ -21,32 +21,45 @@ export class Tablinum<S extends SchemaConfig> {
 
   #handle: DatabaseHandle<S> | null = null;
   #scope: Scope.Closeable | null = null;
-  #collections = new SvelteMap<string, Collection<CollectionDef<CollectionFields>>>();
+  #collections = new Map<string, Collection<CollectionDef<CollectionFields>>>();
+  #members = new Collection<CollectionDef<CollectionFields>>();
   #statusInterval: ReturnType<typeof setInterval> | null = null;
   #closed = false;
-  #resolveReady!: () => void;
-  #rejectReady!: (err: Error) => void;
-  #readySettled = false;
+  #readyState = createDeferred<void>();
 
   constructor(config: TablinumConfig<S>) {
-    this.ready = new Promise<void>((resolve, reject) => {
-      this.#resolveReady = resolve;
-      this.#rejectReady = reject;
-    });
-    // Eagerly create _members so the getter never mutates state (safe in $derived)
-    this.#collections.set("_members", new Collection());
+    this.ready = this.#readyState.promise;
     this.#init(config);
   }
 
   #settleReady(err?: Error): void {
-    if (this.#readySettled) return;
-    this.#readySettled = true;
     if (err) {
-      this.#rejectReady(err);
+      this.#readyState.reject(err);
     } else {
-      this.#resolveReady();
+      this.#readyState.resolve();
     }
   }
+
+  #bindCollections(handle: DatabaseHandle<S>): void {
+    this.#members._bind(handle.members);
+
+    for (const [name, collection] of this.#collections) {
+      collection._bind(handle.collection(name as string & keyof S));
+    }
+  }
+
+  #runHandleEffect = async <R>(
+    run: (handle: DatabaseHandle<S>) => Effect.Effect<R, unknown>,
+  ): Promise<R> => {
+    const handle = this.#requireReady();
+    try {
+      this.error = null;
+      return await Effect.runPromise(run(handle));
+    } catch (e) {
+      this.error = e instanceof Error ? e : new Error(String(e));
+      throw this.error;
+    }
+  };
 
   async #init(config: TablinumConfig<S>): Promise<void> {
     const scope = Effect.runSync(Scope.make());
@@ -61,17 +74,7 @@ export class Tablinum<S extends SchemaConfig> {
       }
       this.#handle = handle;
       this.#scope = scope;
-
-      // Bind all eagerly-created collections
-      for (const [name, col] of this.#collections) {
-        const coreHandle =
-          name === "_members" ? handle.members : handle.collection(name as string & keyof S);
-        col._bind(
-          coreHandle as import("../crud/collection-handle.ts").CollectionHandle<
-            CollectionDef<CollectionFields>
-          >,
-        );
-      }
+      this.#bindCollections(handle);
 
       // Poll sync status
       this.#statusInterval = setInterval(() => {
@@ -80,7 +83,14 @@ export class Tablinum<S extends SchemaConfig> {
           .then((s) => {
             this.syncStatus = s;
           })
-          .catch(() => {});
+          .catch(() => {
+            // getSyncStatus has no typed errors; failures here indicate
+            // the database was closed or a defect — stop polling silently.
+            if (this.#statusInterval) {
+              clearInterval(this.#statusInterval);
+              this.#statusInterval = null;
+            }
+          });
       }, 1000);
 
       this.status = "ready";
@@ -90,6 +100,7 @@ export class Tablinum<S extends SchemaConfig> {
       const err = e instanceof Error ? e : new Error(String(e));
       this.error = err;
       this.status = "error";
+      this.#members._fail(err);
       for (const col of this.#collections.values()) {
         col._fail(err);
       }
@@ -102,9 +113,7 @@ export class Tablinum<S extends SchemaConfig> {
   }
 
   get members(): Collection<CollectionDef<CollectionFields>> {
-    const col = this.#collections.get("_members");
-    if (!col) throw new ClosedError({ message: "Tablinum is closed" });
-    return col;
+    return this.#members;
   }
 
   collection<K extends string & keyof S>(name: K): Collection<S[K]> {
@@ -116,8 +125,7 @@ export class Tablinum<S extends SchemaConfig> {
       col = new Collection() as Collection<CollectionDef<CollectionFields>>;
       this.#collections.set(name, col);
       if (this.#handle) {
-        const handle = this.#handle.collection(name);
-        (col as unknown as Collection<S[K]>)._bind(handle);
+        col._bind(this.#handle.collection(name));
       }
     }
     return col as unknown as Collection<S[K]>;
@@ -142,7 +150,7 @@ export class Tablinum<S extends SchemaConfig> {
     if (this.#closed) return;
     this.#closed = true;
     const closeError = new ClosedError({
-      message: this.#readySettled
+      message: this.#readyState.settled()
         ? "Tablinum is closed"
         : "Tablinum was closed before initialization completed",
     });
@@ -151,9 +159,8 @@ export class Tablinum<S extends SchemaConfig> {
       clearInterval(this.#statusInterval);
       this.#statusInterval = null;
     }
-    for (const col of this.#collections.values()) {
-      col._destroy(closeError);
-    }
+    this.#members._destroy(closeError);
+    for (const col of this.#collections.values()) col._destroy(closeError);
     this.#collections.clear();
     const handle = this.#handle;
     const scope = this.#scope;
@@ -163,81 +170,30 @@ export class Tablinum<S extends SchemaConfig> {
       await Effect.runPromise(handle.close());
       await Effect.runPromise(Scope.close(scope, Exit.void));
     }
-    if (!this.#readySettled) {
+    if (!this.#readyState.settled()) {
       this.error = closeError;
       this.#settleReady(closeError);
     }
     this.status = "closed";
   };
 
-  sync = async (): Promise<void> => {
-    const handle = this.#requireReady();
-    try {
-      this.error = null;
-      await Effect.runPromise(handle.sync());
-    } catch (e) {
-      this.error = e instanceof Error ? e : new Error(String(e));
-      throw this.error;
-    }
-  };
+  sync = async (): Promise<void> => this.#runHandleEffect((handle) => handle.sync());
 
-  rebuild = async (): Promise<void> => {
-    const handle = this.#requireReady();
-    try {
-      this.error = null;
-      await Effect.runPromise(handle.rebuild());
-    } catch (e) {
-      this.error = e instanceof Error ? e : new Error(String(e));
-      throw this.error;
-    }
-  };
+  rebuild = async (): Promise<void> => this.#runHandleEffect((handle) => handle.rebuild());
 
-  addMember = async (pubkey: string): Promise<void> => {
-    const handle = this.#requireReady();
-    try {
-      this.error = null;
-      await Effect.runPromise(handle.addMember(pubkey));
-    } catch (e) {
-      this.error = e instanceof Error ? e : new Error(String(e));
-      throw this.error;
-    }
-  };
+  addMember = async (pubkey: string): Promise<void> =>
+    this.#runHandleEffect((handle) => handle.addMember(pubkey));
 
-  removeMember = async (pubkey: string): Promise<void> => {
-    const handle = this.#requireReady();
-    try {
-      this.error = null;
-      await Effect.runPromise(handle.removeMember(pubkey));
-    } catch (e) {
-      this.error = e instanceof Error ? e : new Error(String(e));
-      throw this.error;
-    }
-  };
+  removeMember = async (pubkey: string): Promise<void> =>
+    this.#runHandleEffect((handle) => handle.removeMember(pubkey));
 
-  getMembers = async (): Promise<ReadonlyArray<MemberRecord>> => {
-    const handle = this.#requireReady();
-    try {
-      this.error = null;
-      return await Effect.runPromise(handle.getMembers());
-    } catch (e) {
-      this.error = e instanceof Error ? e : new Error(String(e));
-      throw this.error;
-    }
-  };
+  getMembers = async (): Promise<ReadonlyArray<MemberRecord>> =>
+    this.#runHandleEffect((handle) => handle.getMembers());
 
   setProfile = async (profile: {
     name?: string;
     picture?: string;
     about?: string;
     nip05?: string;
-  }): Promise<void> => {
-    const handle = this.#requireReady();
-    try {
-      this.error = null;
-      await Effect.runPromise(handle.setProfile(profile));
-    } catch (e) {
-      this.error = e instanceof Error ? e : new Error(String(e));
-      throw this.error;
-    }
-  };
+  }): Promise<void> => this.#runHandleEffect((handle) => handle.setProfile(profile));
 }

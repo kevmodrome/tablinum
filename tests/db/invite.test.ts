@@ -24,32 +24,18 @@ describe("invite", () => {
     expect(() => decodeInvite("not-valid-base64!!!")).toThrow("Invalid invite");
   });
 
-  // Legacy format backward compatibility
-  it("decodes legacy groupKey format", () => {
-    const legacy = btoa(
+  it("rejects legacy groupKey invites", () => {
+    const bad = btoa(
       JSON.stringify({
         groupKey: "a".repeat(64),
         relays: ["wss://relay.example.com"],
-        dbName: "test-db",
+        dbName: "x",
       }),
     );
-    const decoded = decodeInvite(legacy);
-    expect(decoded.epochKeys).toEqual([{ epochId: "epoch-0", key: "a".repeat(64) }]);
-    expect(decoded.relays).toEqual(["wss://relay.example.com"]);
-    expect(decoded.dbName).toBe("test-db");
+    expect(() => decodeInvite(bad)).toThrow("unexpected shape");
   });
 
-  it("rejects legacy non-hex groupKey", () => {
-    const bad = btoa(JSON.stringify({ groupKey: "z".repeat(64), relays: [], dbName: "x" }));
-    expect(() => decodeInvite(bad)).toThrow("64-char hex string");
-  });
-
-  it("rejects legacy groupKey with wrong length", () => {
-    const bad = btoa(JSON.stringify({ groupKey: "aa", relays: [], dbName: "x" }));
-    expect(() => decodeInvite(bad)).toThrow("64-char hex string");
-  });
-
-  it("rejects missing epochKeys and groupKey", () => {
+  it("rejects missing epochKeys", () => {
     const bad = btoa(JSON.stringify({ relays: [], dbName: "x" }));
     expect(() => decodeInvite(bad)).toThrow("unexpected shape");
   });
