@@ -1,30 +1,17 @@
 <script lang="ts">
 	import { getDb } from "$lib/db";
 	import { dbUiState } from "$lib/db-state.svelte";
-	import TodoForm from "$lib/components/TodoForm.svelte";
-	import TodoList from "$lib/components/TodoList.svelte";
 	import InviteSection from "$lib/components/InviteSection.svelte";
 	import ProfileEditor from "$lib/components/ProfileEditor.svelte";
 
 	const db = getDb();
-	const todos = db.collection("todos");
-
-	let allTodos = $derived(db.status === "ready" ? await todos.get() : []);
-	let incomplete = $derived(
-		db.status === "ready" ? await todos.where("done").equals(false).get() : [],
-	);
-	let done = $derived(db.status === "ready" ? await todos.where("done").equals(true).get() : []);
 </script>
-
-<svelte:head>
-	<title>tablinum Svelte Demo</title>
-</svelte:head>
 
 <svelte:boundary>
 	{#snippet pending()}
 		<main>
 			<h1>tablinum Svelte Demo</h1>
-			<p>Loading todos...</p>
+			<p>Loading...</p>
 		</main>
 	{/snippet}
 
@@ -55,13 +42,6 @@
 				{/if}
 			</div>
 
-			<TodoForm />
-
-			<p class="count">{allTodos.length} total</p>
-
-			<TodoList items={incomplete} label="Todo" />
-			<TodoList items={done} label="Done" isDone />
-
 			<div class="actions">
 				<button onclick={() => db.sync()}>Sync</button>
 				<button onclick={() => db.rebuild()}>Rebuild</button>
@@ -71,12 +51,6 @@
 </svelte:boundary>
 
 <style>
-	* {
-		box-sizing: border-box;
-		margin: 0;
-		padding: 0;
-	}
-
 	main {
 		font-family: system-ui, sans-serif;
 		max-width: 600px;
@@ -86,11 +60,6 @@
 
 	h1 {
 		margin-bottom: 1rem;
-	}
-
-	.count {
-		color: #666;
-		margin-bottom: 0.5rem;
 	}
 
 	.actions {
