@@ -251,4 +251,56 @@ describe("multi-user", () => {
     // Cleanup
     Effect.runFork(Fiber.interrupt(fiber));
   });
+
+  it.effect("getProfile returns empty profile for new user", () =>
+    Effect.gen(function* () {
+      const todos = collection("todos", { title: field.string() });
+      const db = yield* createTablinum({
+        schema: { todos },
+        relays: ["wss://relay.example.com"],
+        epochKeys: [{ epochId: EpochId("epoch-0"), key: bytesToHex(generateSecretKey()) }],
+        dbName: "test-get-profile-empty",
+      });
+
+      const profile = yield* db.getProfile();
+      expect(profile).toEqual({});
+    }),
+  );
+
+  it.effect("setProfile then getProfile round-trips", () =>
+    Effect.gen(function* () {
+      const todos = collection("todos", { title: field.string() });
+      const db = yield* createTablinum({
+        schema: { todos },
+        relays: ["wss://relay.example.com"],
+        epochKeys: [{ epochId: EpochId("epoch-0"), key: bytesToHex(generateSecretKey()) }],
+        dbName: "test-profile-roundtrip",
+      });
+
+      yield* db.setProfile({ name: "Alice", about: "Hello world" });
+      const profile = yield* db.getProfile();
+      expect(profile.name).toBe("Alice");
+      expect(profile.about).toBe("Hello world");
+      expect(profile.picture).toBeUndefined();
+      expect(profile.nip05).toBeUndefined();
+    }),
+  );
+
+  it.effect("setProfile merges with existing profile", () =>
+    Effect.gen(function* () {
+      const todos = collection("todos", { title: field.string() });
+      const db = yield* createTablinum({
+        schema: { todos },
+        relays: ["wss://relay.example.com"],
+        epochKeys: [{ epochId: EpochId("epoch-0"), key: bytesToHex(generateSecretKey()) }],
+        dbName: "test-profile-merge",
+      });
+
+      yield* db.setProfile({ name: "Alice" });
+      yield* db.setProfile({ about: "Updated bio" });
+      const profile = yield* db.getProfile();
+      expect(profile.name).toBe("Alice");
+      expect(profile.about).toBe("Updated bio");
+    }),
+  );
 });

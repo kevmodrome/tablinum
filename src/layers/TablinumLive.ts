@@ -119,7 +119,7 @@ export const TablinumLive = Layer.effect(
 
     const schemaEntries = Object.entries(config.schema) as CollectionEntry[];
     const allSchemaEntries = [...schemaEntries, ["_members", membersCollectionDef] as const];
-    const knownCollections = new Set(allSchemaEntries.map(([, def]) => def.name));
+    const knownCollections = new Map(allSchemaEntries.map(([, def]) => [def.name, def.eventRetention]));
 
     let notifyAuthor: ((pubkey: string) => void) | undefined;
 
@@ -163,14 +163,13 @@ export const TablinumLive = Layer.effect(
         }
 
         const gw = wrapResult.success;
-        yield* storage.putGiftWrap({ id: gw.id, eventId: event.id, createdAt: gw.created_at });
+        yield* storage.putGiftWrap({ id: gw.id, createdAt: gw.created_at });
 
         yield* Effect.forkIn(
           Effect.gen(function* () {
             const publishResult = yield* Effect.result(
               syncHandle.publishLocal({
                 id: gw.id,
-                eventId: event.id,
                 event: gw,
                 createdAt: gw.created_at,
               }),
@@ -404,6 +403,20 @@ export const TablinumLive = Layer.effect(
           }),
         ),
 
+      getProfile: () =>
+        ensureOpen(
+          Effect.gen(function* () {
+            const record = yield* storage.getRecord("_members", identity.publicKey);
+            if (!record) return {};
+            const profile: Record<string, string> = {};
+            if (record.name !== undefined) profile.name = record.name as string;
+            if (record.picture !== undefined) profile.picture = record.picture as string;
+            if (record.about !== undefined) profile.about = record.about as string;
+            if (record.nip05 !== undefined) profile.nip05 = record.nip05 as string;
+            return profile;
+          }),
+        ),
+
       setProfile: (profile) =>
         ensureOpen(
           Effect.gen(function* () {
@@ -411,7 +424,8 @@ export const TablinumLive = Layer.effect(
             if (!existing) {
               return yield* new ValidationError({ message: "Current user is not a member" });
             }
-            yield* putMemberRecord({ ...existing, ...profile });
+            const { _deleted, _updatedAt, _author, _eventId, ...memberFields } = existing;
+            yield* putMemberRecord({ ...memberFields, ...profile });
           }),
         ),
     };

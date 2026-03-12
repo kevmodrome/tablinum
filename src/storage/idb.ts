@@ -248,8 +248,7 @@ export function openIDBStorage(
         wrap("stripGiftWrapBlob", async () => {
           const existing = await db.get("giftwraps", id);
           if (existing) {
-            const { event: _, ...tombstone } = existing;
-            await db.put("giftwraps", tombstone);
+            await db.put("giftwraps", { id: existing.id, createdAt: existing.createdAt });
           }
         }),
 

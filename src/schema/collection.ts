@@ -7,10 +7,12 @@ export interface CollectionDef<out F extends CollectionFields = CollectionFields
   readonly name: string;
   readonly fields: F;
   readonly indices: ReadonlyArray<string>;
+  readonly eventRetention: number;
 }
 
 export interface CollectionOptions<F extends CollectionFields> {
   readonly indices?: ReadonlyArray<string & keyof F>;
+  readonly eventRetention?: number;
 }
 
 const RESERVED_NAMES = new Set(["id", "_deleted", "_createdAt", "_updatedAt"]);
@@ -49,5 +51,10 @@ export function collection<F extends CollectionFields>(
     }
   }
 
-  return { _tag: "CollectionDef" as const, name, fields, indices };
+  const eventRetention = options?.eventRetention ?? 1;
+  if (eventRetention < 1 || !Number.isInteger(eventRetention)) {
+    throw new Error(`eventRetention must be a positive integer, got ${eventRetention}`);
+  }
+
+  return { _tag: "CollectionDef" as const, name, fields, indices, eventRetention };
 }

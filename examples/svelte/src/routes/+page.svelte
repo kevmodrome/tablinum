@@ -4,6 +4,7 @@
 	import TodoForm from "$lib/components/TodoForm.svelte";
 	import TodoList from "$lib/components/TodoList.svelte";
 	import InviteSection from "$lib/components/InviteSection.svelte";
+	import ProfileEditor from "$lib/components/ProfileEditor.svelte";
 
 	const db = getDb();
 	const todos = db.collection("todos");
@@ -40,6 +41,7 @@
 			{/if}
 
 			<InviteSection />
+			<ProfileEditor />
 
 			<div class="status-bar">
 				<span class="relay-status" class:connected={db.relayStatus.connectedUrls.length > 0}>

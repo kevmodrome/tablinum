@@ -65,6 +65,7 @@ export const membersCollectionDef: CollectionDef = {
     removedInEpoch: optionalString,
   },
   indices: [],
+  eventRetention: 1,
 };
 
 const AuthorProfileSchema = Schema.Struct({

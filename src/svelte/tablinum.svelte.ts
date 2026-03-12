@@ -4,7 +4,7 @@ import type { CollectionDef, CollectionFields } from "../schema/collection.ts";
 import type { DatabaseHandle, SyncStatus } from "../db/database-handle.ts";
 import type { RelayStatus } from "../sync/relay.ts";
 import type { Invite } from "../db/invite.ts";
-import type { MemberRecord } from "../db/members.ts";
+import type { MemberRecord, AuthorProfile } from "../db/members.ts";
 import {
   createTablinum as coreCreateTablinum,
   type TablinumConfig,
@@ -197,6 +197,9 @@ export class Tablinum<S extends SchemaConfig> {
 
   getMembers = async (): Promise<ReadonlyArray<MemberRecord>> =>
     this.#runHandleEffect((handle) => handle.getMembers());
+
+  getProfile = async (): Promise<AuthorProfile> =>
+    this.#runHandleEffect((handle) => handle.getProfile());
 
   setProfile = async (profile: {
     name?: string;

@@ -5,6 +5,7 @@ import { unwrapEvent } from "nostr-tools/nip59";
 import { GiftWrap } from "nostr-tools/kinds";
 import type { IDBStorageHandle, StoredEvent, StoredGiftWrap } from "../storage/idb.ts";
 import { applyEvent } from "../storage/records-store.ts";
+import { pruneEvents } from "../crud/collection-handle.ts";
 import type { GiftWrapHandle } from "./gift-wrap.ts";
 import type { RelayHandle } from "./relay.ts";
 import type { PublishQueueHandle } from "./publish-queue.ts";
@@ -33,7 +34,7 @@ export function createSyncHandle(
   syncStatus: SyncStatusHandle,
   watchCtx: WatchContext,
   relayUrls: readonly string[],
-  knownCollections: ReadonlySet<string>,
+  knownCollections: ReadonlyMap<string, number>,
   epochStore: EpochStore,
   personalPrivateKey: Uint8Array,
   personalPublicKey: string,
@@ -130,7 +131,8 @@ export function createSyncHandle(
       const collectionName = dTag.substring(0, colonIdx);
       const recordId = dTag.substring(colonIdx + 1);
 
-      if (!knownCollections.has(collectionName)) {
+      const retention = knownCollections.get(collectionName);
+      if (retention === undefined) {
         yield* storage.putGiftWrap({ id: remoteGw.id, createdAt: remoteGw.created_at });
         return null;
       }
@@ -175,19 +177,13 @@ export function createSyncHandle(
 
       yield* storage.putGiftWrap({
         id: remoteGw.id,
-        eventId: event.id,
         createdAt: remoteGw.created_at,
       });
       yield* storage.putEvent(event);
       const didApply = yield* applyEvent(storage, event);
 
-      if (kind === "delete" && didApply) {
-        const oldEvents = yield* storage.getEventsByRecord(collectionName, recordId);
-        yield* Effect.forEach(
-          oldEvents.filter((e) => e.id !== event.id),
-          (e) => storage.deleteEvent(e.id),
-          { discard: true },
-        );
+      if (didApply && (kind === "update" || kind === "delete")) {
+        yield* pruneEvents(storage, collectionName, recordId, retention);
       }
 
       if (author && onNewAuthor) {

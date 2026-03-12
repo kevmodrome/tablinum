@@ -11,6 +11,22 @@ import { notifyChange, watchCollection } from "./watch.ts";
 import type { WhereClause, QueryBuilder } from "./query-builder.ts";
 import { createWhereClause, createOrderByBuilder } from "./query-builder.ts";
 
+export function pruneEvents(
+  storage: IDBStorageHandle,
+  collection: string,
+  recordId: string,
+  retention: number,
+): Effect.Effect<void, StorageError> {
+  return Effect.gen(function* () {
+    const events = yield* storage.getEventsByRecord(collection, recordId);
+    if (events.length <= retention) return;
+
+    const sorted = [...events].sort((a, b) => b.createdAt - a.createdAt);
+    const toDelete = sorted.slice(retention);
+    yield* Effect.forEach(toDelete, (e) => storage.deleteEvent(e.id), { discard: true });
+  });
+}
+
 export interface CollectionHandle<C extends CollectionDef<CollectionFields>> {
   readonly add: (
     data: Omit<InferRecord<C>, "id">,
@@ -91,7 +107,7 @@ export function createCollectionHandle<C extends CollectionDef<CollectionFields>
           });
         }
         yield* partialValidator(data);
-        const { _deleted, _updatedAt, _author, ...existingFields } = existing;
+        const { _deleted, _updatedAt, _author, _eventId, ...existingFields } = existing;
         const merged = { ...existingFields, ...data, id };
         yield* validator(merged);
 
@@ -104,6 +120,8 @@ export function createCollectionHandle<C extends CollectionDef<CollectionFields>
           createdAt: Date.now(),
         };
         yield* commitEvent(event);
+
+        yield* pruneEvents(storage, collectionName, id, def.eventRetention);
       }),
 
     delete: (id) =>
@@ -126,12 +144,7 @@ export function createCollectionHandle<C extends CollectionDef<CollectionFields>
         };
         yield* commitEvent(event);
 
-        const oldEvents = yield* storage.getEventsByRecord(collectionName, id);
-        yield* Effect.forEach(
-          oldEvents.filter((e) => e.id !== event.id),
-          (e) => storage.deleteEvent(e.id),
-          { discard: true },
-        );
+        yield* pruneEvents(storage, collectionName, id, def.eventRetention);
       }),
 
     get: (id) =>
