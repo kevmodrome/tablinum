@@ -1,30 +1,39 @@
 # tablinum
 
-A local-first storage library for the browser. Define typed collections, read and write data locally via IndexedDB, and sync across devices through Nostr relays.
-
-Built on [Effect](https://effect.website) and [IndexedDB](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API).
+A local-first database for the browser with encrypted sync and built-in collaboration.
 
 ## Features
 
-- **Typed schema** — define collections with `collection()` and `field.*()` builders, get full TypeScript inference
-- **Local-first** — all reads hit IndexedDB, no network required
-- **Cross-device sync** — replicate data via Nostr relays using NIP-59 gift wrapping for privacy
-- **Efficient reconciliation** — NIP-77 negentropy for minimal sync overhead
-- **Dexie-style queries** — chainable `.where()`, `.above()`, `.below()`, `.orderBy()` API
-- **Svelte 5 bindings** — optional reactive runes integration
+### Local first
 
-## How it works
+Your app works offline. All data lives on your device in the browser.
 
-Tablinum stores all data locally in IndexedDB so your app works offline and reads are instant. When you call `sync()`, it replicates data to [Nostr](https://nostr.com) relays so your other devices can pick it up. All data sent to relays is encrypted using [NIP-59 gift wrapping](https://github.com/nostr-protocol/nips/blob/master/59.md) — relays never see your application data. Sync uses [NIP-77 negentropy](https://github.com/nostr-protocol/nips/blob/master/77.md) to efficiently reconcile what each side has, minimizing bandwidth.
+### Backed up and encrypted
+
+Data syncs to relays so it's safe across devices. Everything stored on relays is end-to-end encrypted - relay operators cannot read your data.
+
+### Identity and collaboration built in
+
+Tablinum has a built-in system for sharing a database with other people, and for removing access when needed.
+
+Every database has a shared secret key. When you invite someone, they get a copy of the key so they can read and write data. If someone leaves or is removed, a new key is created and shared with everyone _except_ the removed person — like changing the locks when a roommate moves out. Old data is still available to the removed person but they will not get anything new.
+
+Invites are just links. Share one, and the other person has everything they need to join.
+
+### Typed collections and queries
+
+Define your data shape once with `collection()` and `field.*()` builders, and get full TypeScript inference everywhere. Query with a chainable API:
+
+```typescript
+const pending = await todos.where("done").equals(false).get();
+const recent = await todos.orderBy("createdAt").get();
+```
+
+### Svelte 5 bindings
+
+Optional reactive integration using Svelte 5 async runes. No Effect knowledge needed — the API is plain async/await.
 
 ## Getting started
-
-### Pick a relay
-
-Tablinum syncs through Nostr relays, which must support [NIP-77 (Negentropy)](https://github.com/nostr-protocol/nips/blob/master/77.md). You have two options:
-
-- **Use a public relay** — find NIP-77 compatible relays at [nostrwat.ch](https://nostrwat.ch)
-- **Self-host a relay** — [strfry](https://github.com/hoytech/strfry) is a good choice if you want full control over where your users' data is stored
 
 ### Install
 
@@ -32,7 +41,7 @@ Tablinum syncs through Nostr relays, which must support [NIP-77 (Negentropy)](ht
 npm install tablinum
 ```
 
-### Quick start
+### Quick start (Effect)
 
 ```typescript
 import { Effect } from "effect";
@@ -72,11 +81,9 @@ const program = Effect.gen(function* () {
 Effect.runPromise(Effect.scoped(program));
 ```
 
-## Svelte 5
+### Quick start (Svelte 5)
 
-Import from `tablinum/svelte` for reactive bindings that use Svelte 5 runes. No Effect knowledge needed — the API is plain async/await.
-
-This API uses Svelte's async runes support, so enable it in your app config:
+Import from `tablinum/svelte` for reactive bindings. This API uses Svelte's async runes support, so enable it in your app config:
 
 ```js
 // svelte.config.js
@@ -89,9 +96,7 @@ const config = {
 };
 ```
 
-### Setup
-
-Create a database helper that defines your schema and initializes the database:
+Create a database helper:
 
 ```typescript
 // src/lib/db.ts
@@ -118,9 +123,7 @@ export const db = new Tablinum({
 export const todos = db.collection("todos");
 ```
 
-### Component
-
-Async collection reads are reactive when used inside `$derived(await ...)` expressions.
+Use it in a component:
 
 ```svelte
 <script lang="ts">
@@ -188,12 +191,25 @@ Async collection reads are reactive when used inside `$derived(await ...)` expre
 </svelte:boundary>
 ```
 
-### Key concepts
+#### Key concepts
 
 - **`new Tablinum(config)`** starts initialization immediately and exposes `db.ready`
 - **Async queries are reactive** when used inside `$derived(await ...)`
 - **`db.status`** tracks initialization and terminal state; **`db.syncStatus`** tracks sync activity
 - **`createTablinum(config)`** still exists as a convenience and resolves once `db.ready` completes
+
+## How it works
+
+Tablinum is built on [Effect](https://effect.website) and stores all data locally in [IndexedDB](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API).
+
+Sync happens through [Nostr](https://nostr.com) relays. All data sent to relays is encrypted using [NIP-59 gift wrapping](https://github.com/nostr-protocol/nips/blob/master/59.md). Relays never see your application data. Sync uses [NIP-77 negentropy](https://github.com/nostr-protocol/nips/blob/master/77.md) to efficiently reconcile what each side has, minimizing bandwidth usage.
+
+### Picking a relay
+
+Tablinum syncs through Nostr relays that support [NIP-77 (Negentropy)](https://github.com/nostr-protocol/nips/blob/master/77.md). You have two options:
+
+- **Use a public relay** — find NIP-77 compatible relays at [nostrwat.ch](https://nostrwat.ch)
+- **Self-host a relay** — [strfry](https://github.com/hoytech/strfry) is a good choice if you want full control over where your users' data is stored
 
 ## License
 
