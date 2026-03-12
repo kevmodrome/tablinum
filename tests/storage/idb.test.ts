@@ -32,8 +32,8 @@ describe("IDBStorage", () => {
       yield* storage.putRecord("todos", {
         id: "r1",
         title: "Test",
-        _deleted: false,
-        _updatedAt: 100,
+        _d: false,
+        _u: 100,
       });
       const record = yield* storage.getRecord("todos", "r1");
       expect(record).toBeDefined();
@@ -48,20 +48,20 @@ describe("IDBStorage", () => {
       yield* storage.putRecord("todos", {
         id: "r1",
         title: "A",
-        _deleted: false,
-        _updatedAt: 100,
+        _d: false,
+        _u: 100,
       });
       yield* storage.putRecord("todos", {
         id: "r2",
         title: "B",
-        _deleted: false,
-        _updatedAt: 200,
+        _d: false,
+        _u: 200,
       });
       yield* storage.putRecord("notes", {
         id: "r3",
         text: "C",
-        _deleted: false,
-        _updatedAt: 300,
+        _d: false,
+        _u: 300,
       });
       const todos = yield* storage.getAllRecords("todos");
       expect(todos.length).toBe(2);
@@ -77,8 +77,8 @@ describe("IDBStorage", () => {
       yield* storage.putRecord("todos", {
         id: "r1",
         title: "X",
-        _deleted: false,
-        _updatedAt: 100,
+        _d: false,
+        _u: 100,
       });
       yield* storage.clearRecords("todos");
       const all = yield* storage.getAllRecords("todos");
@@ -94,7 +94,7 @@ describe("IDBStorage", () => {
         id: "e1",
         collection: "todos",
         recordId: "r1",
-        kind: "create",
+        kind: "c",
         data: { title: "Test" },
         createdAt: 100,
       });
@@ -112,7 +112,7 @@ describe("IDBStorage", () => {
         id: "e1",
         collection: "todos",
         recordId: "r1",
-        kind: "create",
+        kind: "c",
         data: { title: "V1" },
         createdAt: 100,
       });
@@ -120,7 +120,7 @@ describe("IDBStorage", () => {
         id: "e2",
         collection: "todos",
         recordId: "r1",
-        kind: "update",
+        kind: "u",
         data: { title: "V2" },
         createdAt: 200,
       });
@@ -141,6 +141,30 @@ describe("IDBStorage", () => {
       const gw = yield* storage.getGiftWrap("gw1");
       expect(gw).toBeDefined();
       expect(gw!.event!.kind).toBe(1059);
+    }),
+  );
+
+  it.effect("stripEventData nulls out data but keeps shell", () =>
+    Effect.gen(function* () {
+      const schema = makeSchema();
+      const storage = yield* openIDBStorage(DatabaseName("test-strip-event"), schema);
+      yield* storage.putEvent({
+        id: "e1",
+        collection: "todos",
+        recordId: "r1",
+        kind: "c",
+        data: { title: "Test" },
+        createdAt: 100,
+      });
+      yield* storage.stripEventData("e1");
+      const event = yield* storage.getEvent("e1");
+      expect(event).toBeDefined();
+      expect(event!.data).toBeNull();
+      expect(event!.id).toBe("e1");
+      expect(event!.collection).toBe("todos");
+      expect(event!.recordId).toBe("r1");
+      expect(event!.kind).toBe("c");
+      expect(event!.createdAt).toBe(100);
     }),
   );
 });

@@ -1,15 +1,16 @@
 import { Effect } from "effect";
 import type { IDBStorageHandle, StoredEvent } from "./idb.ts";
 import { resolveWinner } from "./lww.ts";
+import { deepMerge } from "../utils/diff.ts";
 import type { StorageError } from "../errors.ts";
 
-function buildRecord(event: StoredEvent): Record<string, unknown> {
+export function buildRecord(event: StoredEvent): Record<string, unknown> {
   return {
     id: event.recordId,
-    _deleted: event.kind === "delete",
-    _updatedAt: event.createdAt,
-    _eventId: event.id,
-    _author: event.author,
+    _d: event.kind === "d",
+    _u: event.createdAt,
+    _e: event.id,
+    _a: event.author,
     ...(event.data ?? {}),
   };
 }
@@ -23,15 +24,19 @@ export function applyEvent(
 
     if (existing) {
       const existingMeta = {
-        id: existing._eventId as string,
-        createdAt: existing._updatedAt as number,
+        id: existing._e as string,
+        createdAt: existing._u as number,
       };
       const incomingMeta = { id: event.id, createdAt: event.createdAt };
       const winner = resolveWinner(existingMeta, incomingMeta);
       if (winner.id !== event.id) return false;
     }
 
-    yield* storage.putRecord(event.collection, buildRecord(event));
+    if (existing && event.kind === "u") {
+      yield* storage.putRecord(event.collection, deepMerge(existing, buildRecord(event)));
+    } else {
+      yield* storage.putRecord(event.collection, buildRecord(event));
+    }
     return true;
   });
 }
@@ -46,17 +51,12 @@ export function rebuild(
     }
     const allEvents = yield* storage.getAllEvents();
 
-    const sorted = [...allEvents].sort((a, b) => a.createdAt - b.createdAt);
-
-    const winners = new Map<string, StoredEvent>();
+    const sorted = [...allEvents].sort(
+      (a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : 1),
+    );
     for (const event of sorted) {
-      const key = `${event.collection}:${event.recordId}`;
-      const current = winners.get(key) ?? null;
-      winners.set(key, resolveWinner(current, event));
-    }
-
-    for (const event of winners.values()) {
-      yield* storage.putRecord(event.collection, buildRecord(event));
+      if (event.data === null && event.kind !== "d") continue;
+      yield* applyEvent(storage, event);
     }
   });
 }

@@ -14,7 +14,7 @@ export type { Invite } from "./db/invite.ts";
 export { EpochId, DatabaseName } from "./brands.ts";
 
 export type { EpochKey, EpochKeyInput } from "./db/epoch.ts";
-export type { MemberRecord } from "./db/members.ts";
+export type { MemberRecord, AuthorProfile } from "./db/members.ts";
 
 export type { CollectionHandle } from "./crud/collection-handle.ts";
 export type { CollectionOptions } from "./schema/collection.ts";

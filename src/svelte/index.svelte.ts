@@ -11,7 +11,7 @@ export { encodeInvite, decodeInvite } from "../db/invite.ts";
 export type { Invite } from "../db/invite.ts";
 
 export type { EpochKey, EpochKeyInput } from "../db/epoch.ts";
-export type { MemberRecord } from "../db/members.ts";
+export type { MemberRecord, AuthorProfile } from "../db/members.ts";
 
 export {
   ValidationError,

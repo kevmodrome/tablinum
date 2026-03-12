@@ -24,4 +24,15 @@ describe("collection builder", () => {
   it("rejects reserved field names", () => {
     expect(() => collection("bad", { id: field.string() })).toThrow();
   });
+
+  it("allows eventRetention to be zero", () => {
+    const col = collection(
+      "todos",
+      {
+        title: field.string(),
+      },
+      { eventRetention: 0 },
+    );
+    expect(col.eventRetention).toBe(0);
+  });
 });

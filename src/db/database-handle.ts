@@ -10,7 +10,7 @@ import type {
   ValidationError,
 } from "../errors.ts";
 import type { Invite } from "./invite.ts";
-import type { MemberRecord } from "./members.ts";
+import type { MemberRecord, AuthorProfile } from "./members.ts";
 import type { RelayStatus } from "../sync/relay.ts";
 
 export type SyncStatus = "idle" | "syncing";
@@ -37,6 +37,7 @@ export interface DatabaseHandle<S extends SchemaConfig> {
     pubkey: string,
   ) => Effect.Effect<void, ValidationError | StorageError | SyncError | RelayError | CryptoError>;
   readonly getMembers: () => Effect.Effect<ReadonlyArray<MemberRecord>, StorageError>;
+  readonly getProfile: () => Effect.Effect<AuthorProfile, StorageError>;
   readonly setProfile: (profile: {
     name?: string;
     picture?: string;

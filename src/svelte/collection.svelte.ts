@@ -92,6 +92,10 @@ export class Collection<C extends CollectionDef<CollectionFields>> {
     return this.#run(() => this.#handleOrThrow().delete(id));
   };
 
+  undo = (id: string): Promise<void> => {
+    return this.#run(() => this.#handleOrThrow().undo(id));
+  };
+
   get(): Promise<ReadonlyArray<InferRecord<C>>>;
   get(id: string): Promise<InferRecord<C>>;
   get(id?: string): Promise<ReadonlyArray<InferRecord<C>> | InferRecord<C>> {
