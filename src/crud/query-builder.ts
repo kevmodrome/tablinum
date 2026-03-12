@@ -41,7 +41,7 @@ function executeQuery<T>(
           field: plan.fieldName,
         });
       }
-      if (fieldDef.kind === "json" || fieldDef.isArray) {
+      if (fieldDef.kind === "json" || fieldDef.kind === "object" || fieldDef.isArray) {
         return yield* new VE({
           message: `Field "${plan.fieldName}" does not support filtering (type: ${fieldDef.kind}${fieldDef.isArray ? "[]" : ""})`,
           field: plan.fieldName,

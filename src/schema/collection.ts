@@ -42,7 +42,7 @@ export function collection<F extends CollectionFields>(
       if (!fieldDef) {
         throw new Error(`Index field "${idx}" does not exist in collection "${name}"`);
       }
-      if (fieldDef.kind === "json" || fieldDef.isArray) {
+      if (fieldDef.kind === "json" || fieldDef.kind === "object" || fieldDef.isArray) {
         throw new Error(
           `Field "${idx}" cannot be indexed (type: ${fieldDef.kind}${fieldDef.isArray ? "[]" : ""})`,
         );

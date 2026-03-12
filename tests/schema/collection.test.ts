@@ -35,4 +35,30 @@ describe("collection builder", () => {
     );
     expect(col.eventRetention).toBe(0);
   });
+
+  it("rejects indexing an object field", () => {
+    expect(() =>
+      collection(
+        "contacts",
+        {
+          name: field.string(),
+          address: field.object({
+            city: field.string(),
+          }),
+        },
+        { indices: ["address"] as any },
+      ),
+    ).toThrow();
+  });
+
+  it("allows collections with object fields", () => {
+    const col = collection("contacts", {
+      name: field.string(),
+      address: field.object({
+        street: field.string(),
+        city: field.string(),
+      }),
+    });
+    expect(col.fields.address.kind).toBe("object");
+  });
 });
