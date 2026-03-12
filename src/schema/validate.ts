@@ -22,6 +22,14 @@ function fieldDefToSchema(fd: FieldDef): DecodableSchema {
     case "json":
       base = Schema.Unknown as DecodableSchema;
       break;
+    case "object": {
+      const nested: Record<string, DecodableSchema> = {};
+      for (const [k, v] of Object.entries(fd.fields!)) {
+        nested[k] = fieldDefToSchema(v);
+      }
+      base = Schema.Struct(nested) as DecodableSchema;
+      break;
+    }
   }
 
   if (fd.isArray) {

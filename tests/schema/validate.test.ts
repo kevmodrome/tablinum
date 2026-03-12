@@ -93,4 +93,101 @@ describe("schema validation", () => {
       expect(result._tag).toBe("Failure");
     }),
   );
+
+  it.effect("validates nested object fields", () =>
+    Effect.gen(function* () {
+      const def = collection("contacts", {
+        name: field.string(),
+        address: field.object({
+          street: field.string(),
+          city: field.string(),
+        }),
+      });
+      const validate = buildValidator("contacts", def);
+      const result = yield* validate({
+        id: "abc",
+        name: "Alice",
+        address: { street: "123 Main", city: "Springfield" },
+      });
+      expect(result).toEqual({
+        id: "abc",
+        name: "Alice",
+        address: { street: "123 Main", city: "Springfield" },
+      });
+    }),
+  );
+
+  it.effect("rejects invalid nested object fields", () =>
+    Effect.gen(function* () {
+      const def = collection("contacts", {
+        address: field.object({
+          city: field.string(),
+        }),
+      });
+      const validate = buildValidator("contacts", def);
+      const result = yield* Effect.result(
+        validate({ id: "abc", address: { city: 42 } }),
+      );
+      expect(result._tag).toBe("Failure");
+    }),
+  );
+
+  it.effect("validates deeply nested objects", () =>
+    Effect.gen(function* () {
+      const def = collection("places", {
+        location: field.object({
+          geo: field.object({
+            lat: field.number(),
+            lng: field.number(),
+          }),
+        }),
+      });
+      const validate = buildValidator("places", def);
+      const result = yield* validate({
+        id: "abc",
+        location: { geo: { lat: 1.5, lng: 2.5 } },
+      });
+      expect(result).toEqual({
+        id: "abc",
+        location: { geo: { lat: 1.5, lng: 2.5 } },
+      });
+    }),
+  );
+
+  it.effect("validates optional nested object fields", () =>
+    Effect.gen(function* () {
+      const def = collection("contacts", {
+        name: field.string(),
+        address: field.optional(field.object({
+          city: field.string(),
+        })),
+      });
+      const validate = buildValidator("contacts", def);
+      const result = yield* validate({
+        id: "abc",
+        name: "Alice",
+        address: undefined,
+      });
+      expect(result).toEqual({ id: "abc", name: "Alice", address: undefined });
+    }),
+  );
+
+  it.effect("partial validator works with nested object fields", () =>
+    Effect.gen(function* () {
+      const def = collection("contacts", {
+        name: field.string(),
+        address: field.object({
+          street: field.string(),
+          city: field.string(),
+        }),
+      });
+      const validate = buildPartialValidator("contacts", def);
+      const result = yield* validate({
+        address: { street: "456 Oak", city: "Portland" },
+      });
+      expect(result).toEqual({
+        address: { street: "456 Oak", city: "Portland" },
+      });
+    }),
+  );
 });

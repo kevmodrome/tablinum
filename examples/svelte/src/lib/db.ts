@@ -11,9 +11,24 @@ const todosCollection = collection(
   { indices: ["done", "priority"] },
 );
 
-export type TodoRecord = InferRecord<typeof todosCollection>;
+const contactsCollection = collection(
+  "contacts",
+  {
+    name: field.string(),
+    email: field.optional(field.string()),
+    address: field.object({
+      street: field.string(),
+      city: field.string(),
+      zip: field.optional(field.string()),
+    }),
+  },
+  { indices: ["name"] },
+);
 
-const schema = { todos: todosCollection };
+export type TodoRecord = InferRecord<typeof todosCollection>;
+export type ContactRecord = InferRecord<typeof contactsCollection>;
+
+const schema = { todos: todosCollection, contacts: contactsCollection };
 export type AppSchema = typeof schema;
 
 function getInviteFromUrl(): ReturnType<typeof decodeInvite> | undefined {
