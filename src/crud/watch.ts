@@ -22,7 +22,7 @@ export function watchCollection<T>(
 ): Stream.Stream<ReadonlyArray<T>, StorageError> {
   const query = (): Effect.Effect<ReadonlyArray<T>, StorageError> =>
     Effect.map(storage.getAllRecords(collectionName), (all) => {
-      const filtered = all.filter((r) => !r._deleted && (filter ? filter(r) : true));
+      const filtered = all.filter((r) => !r._d && (filter ? filter(r) : true));
       return mapRecord ? filtered.map(mapRecord) : (filtered as unknown as ReadonlyArray<T>);
     });
 

@@ -9,7 +9,7 @@ export interface StoredEvent {
   readonly id: string;
   readonly collection: string;
   readonly recordId: string;
-  readonly kind: "create" | "update" | "delete";
+  readonly kind: "c" | "u" | "d";
   readonly data: Record<string, unknown> | null;
   readonly createdAt: number;
   readonly author?: string | undefined;
@@ -68,6 +68,7 @@ export interface IDBStorageHandle {
   readonly stripGiftWrapBlob: (id: string) => Effect.Effect<void, StorageError>;
 
   readonly deleteEvent: (id: string) => Effect.Effect<void, StorageError>;
+  readonly stripEventData: (id: string) => Effect.Effect<void, StorageError>;
 
   readonly getMeta: (key: string) => Effect.Effect<unknown | undefined, StorageError>;
   readonly putMeta: (key: string, value: unknown) => Effect.Effect<void, StorageError>;
@@ -253,6 +254,14 @@ export function openIDBStorage(
         }),
 
       deleteEvent: (id) => wrap("deleteEvent", () => db.delete("events", id).then(() => undefined)),
+
+      stripEventData: (id) =>
+        wrap("stripEventData", async () => {
+          const existing = await db.get("events", id);
+          if (existing) {
+            await db.put("events", { ...existing, data: null });
+          }
+        }),
 
       getMeta: (key) => wrap("getMeta", () => db.get("_meta", key)),
 

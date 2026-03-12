@@ -84,7 +84,7 @@ function executeQuery<T>(
       results = [...(yield* ctx.storage.getAllRecords(ctx.collectionName))];
     }
 
-    results = results.filter((r) => !r._deleted);
+    results = results.filter((r) => !r._d);
 
     for (const f of plan.filters) {
       results = results.filter(f);

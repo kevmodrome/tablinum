@@ -146,7 +146,7 @@ export function createSyncHandle(
       }
 
       let data: Record<string, unknown> | null = null;
-      let kind: "create" | "update" | "delete" = "update";
+      let kind: "c" | "u" | "d" = "u";
 
       const parsed = yield* Effect.try({
         try: () => JSON.parse(rumor.content) as Record<string, unknown> | null,
@@ -158,7 +158,7 @@ export function createSyncHandle(
       }
 
       if (parsed === null || parsed._deleted) {
-        kind = "delete";
+        kind = "d";
       } else {
         data = parsed;
       }
@@ -182,7 +182,7 @@ export function createSyncHandle(
       yield* storage.putEvent(event);
       const didApply = yield* applyEvent(storage, event);
 
-      if (didApply && (kind === "update" || kind === "delete")) {
+      if (didApply && (kind === "u" || kind === "d")) {
         yield* pruneEvents(storage, collectionName, recordId, retention);
       }
 
@@ -307,8 +307,9 @@ export function createSyncHandle(
           Effect.tapError((err) => Effect.sync(() => onSyncError?.(err))),
           Effect.orElseSucceed(() => [] as NostrEvent[]),
         );
+        const sorted = [...fetched].sort((a, b) => a.created_at - b.created_at);
         yield* Effect.forEach(
-          fetched,
+          sorted,
           (remoteGw) =>
             Effect.gen(function* () {
               const collection = yield* processGiftWrap(remoteGw).pipe(
