@@ -145,7 +145,7 @@ export const TablinumLive = Layer.effect(
     const onWrite: OnWriteCallback = (event) =>
       Effect.gen(function* () {
         const content =
-          event.kind === "delete" ? JSON.stringify({ _deleted: true }) : JSON.stringify(event.data);
+          event.kind === "d" ? JSON.stringify(null) : JSON.stringify(event.data);
         const dTag = `${event.collection}:${event.recordId}`;
 
         const wrapResult = yield* Effect.result(
@@ -191,9 +191,10 @@ export const TablinumLive = Layer.effect(
           id: uuidv7(),
           collection: "_members",
           recordId: record.id as string,
-          kind: existing ? "update" : "create",
+          kind: existing ? "u" : "c",
           data: record,
           createdAt: Date.now(),
+          author: identity.publicKey,
         };
         yield* storage.putEvent(event);
         yield* applyEvent(storage, event);
@@ -254,6 +255,7 @@ export const TablinumLive = Layer.effect(
         validator,
         partialValidator,
         uuidv7,
+        identity.publicKey,
         onWrite,
       );
       handles.set(def.name, handle as AnyCollectionHandle);
@@ -399,7 +401,7 @@ export const TablinumLive = Layer.effect(
         ensureOpen(
           Effect.gen(function* () {
             const allRecords = yield* storage.getAllRecords("_members");
-            return allRecords.filter((record) => !record._deleted).map(mapMemberRecord);
+            return allRecords.filter((record) => !record._d).map(mapMemberRecord);
           }),
         ),
 
@@ -424,7 +426,7 @@ export const TablinumLive = Layer.effect(
             if (!existing) {
               return yield* new ValidationError({ message: "Current user is not a member" });
             }
-            const { _deleted, _updatedAt, _author, _eventId, ...memberFields } = existing;
+            const { _d, _u, _a, _e, ...memberFields } = existing;
             yield* putMemberRecord({ ...memberFields, ...profile });
           }),
         ),

@@ -92,10 +92,11 @@ describe("multi-user", () => {
       const id = yield* col.add({ title: "Test", done: false } as any);
       const record = yield* col.get(id);
 
-      // _author should be stripped from the public record
-      expect("_author" in record).toBe(false);
-      expect("_deleted" in record).toBe(false);
-      expect("_updatedAt" in record).toBe(false);
+      // internal fields should be stripped from the public record
+      expect("_a" in record).toBe(false);
+      expect("_d" in record).toBe(false);
+      expect("_u" in record).toBe(false);
+      expect("_e" in record).toBe(false);
     }),
   );
 
@@ -120,7 +121,7 @@ describe("multi-user", () => {
       yield* col.update(id, { title: "Updated" } as any);
 
       const record = yield* col.get(id);
-      expect("_author" in record).toBe(false);
+      expect("_a" in record).toBe(false);
       expect(record.title).toBe("Updated");
       expect(record.done).toBe(true);
     }),
@@ -301,6 +302,66 @@ describe("multi-user", () => {
       const profile = yield* db.getProfile();
       expect(profile.name).toBe("Alice");
       expect(profile.about).toBe("Updated bio");
+    }),
+  );
+
+  it.effect("rebuild preserves state with eventRetention greater than one", () =>
+    Effect.gen(function* () {
+      const todos = collection(
+        "todos",
+        {
+          title: field.string(),
+          done: field.boolean(),
+        },
+        { eventRetention: 2 },
+      );
+      const db = yield* createTablinum({
+        schema: { todos },
+        relays: ["wss://relay.example.com"],
+        epochKeys: [{ epochId: EpochId("epoch-0"), key: bytesToHex(generateSecretKey()) }],
+        dbName: "test-rebuild-retention-2",
+      });
+
+      const col = db.collection("todos");
+      const id = yield* col.add({ title: "A", done: false } as any);
+      yield* col.update(id, { done: true } as any);
+      yield* col.update(id, { title: "B" } as any);
+      yield* col.update(id, { title: "C" } as any);
+
+      yield* db.rebuild();
+
+      const record = yield* col.get(id);
+      expect(record.title).toBe("C");
+      expect(record.done).toBe(true);
+    }),
+  );
+
+  it.effect("undo restores the pre-delete state", () =>
+    Effect.gen(function* () {
+      const todos = collection(
+        "todos",
+        {
+          title: field.string(),
+          done: field.boolean(),
+        },
+        { eventRetention: 3 },
+      );
+      const db = yield* createTablinum({
+        schema: { todos },
+        relays: ["wss://relay.example.com"],
+        epochKeys: [{ epochId: EpochId("epoch-0"), key: bytesToHex(generateSecretKey()) }],
+        dbName: "test-undo-delete",
+      });
+
+      const col = db.collection("todos");
+      const id = yield* col.add({ title: "A", done: false } as any);
+      yield* col.update(id, { title: "B" } as any);
+      yield* col.delete(id);
+      yield* col.undo(id);
+
+      const record = yield* col.get(id);
+      expect(record.title).toBe("B");
+      expect(record.done).toBe(false);
     }),
   );
 });

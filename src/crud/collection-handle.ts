@@ -4,12 +4,63 @@ import type { InferRecord } from "../schema/types.ts";
 import type { RecordValidator, PartialValidator } from "../schema/validate.ts";
 import type { IDBStorageHandle, StoredEvent } from "../storage/idb.ts";
 import { applyEvent } from "../storage/records-store.ts";
+import { deepDiff, deepMerge } from "../utils/diff.ts";
 import { NotFoundError, StorageError, ValidationError } from "../errors.ts";
 import { uuidv7 } from "../utils/uuid.ts";
 import type { WatchContext } from "./watch.ts";
 import { notifyChange, watchCollection } from "./watch.ts";
 import type { WhereClause, QueryBuilder } from "./query-builder.ts";
 import { createWhereClause, createOrderByBuilder } from "./query-builder.ts";
+
+const KIND_FULL = { c: "create", u: "update", d: "delete" } as const;
+
+function sortChronologically(events: ReadonlyArray<StoredEvent>): StoredEvent[] {
+  return [...events].sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : 1));
+}
+
+function replayState(
+  recordId: string,
+  events: ReadonlyArray<StoredEvent>,
+  stopAtId?: string,
+): Record<string, unknown> | null {
+  let state: Record<string, unknown> | null = null;
+
+  for (const e of events) {
+    if (e.kind === "d") {
+      state = null;
+    } else if (e.data !== null) {
+      if (state === null) {
+        // The oldest retained event may already be a promoted snapshot.
+        state = { id: recordId, ...e.data };
+      } else {
+        state = deepMerge(state, e.data);
+      }
+    }
+
+    if (stopAtId !== undefined && e.id === stopAtId) {
+      break;
+    }
+  }
+
+  return state;
+}
+
+function promoteToSnapshot(
+  storage: IDBStorageHandle,
+  collection: string,
+  recordId: string,
+  target: StoredEvent,
+  allSorted: ReadonlyArray<StoredEvent>,
+): Effect.Effect<void, StorageError> {
+  return Effect.gen(function* () {
+    const chronological = sortChronologically(allSorted);
+    const state = replayState(recordId, chronological, target.id);
+
+    if (state) {
+      yield* storage.putEvent({ ...target, data: state });
+    }
+  });
+}
 
 export function pruneEvents(
   storage: IDBStorageHandle,
@@ -21,9 +72,18 @@ export function pruneEvents(
     const events = yield* storage.getEventsByRecord(collection, recordId);
     if (events.length <= retention) return;
 
-    const sorted = [...events].sort((a, b) => b.createdAt - a.createdAt);
-    const toDelete = sorted.slice(retention);
-    yield* Effect.forEach(toDelete, (e) => storage.deleteEvent(e.id), { discard: true });
+    const sorted = [...events].sort((a, b) => b.createdAt - a.createdAt || (a.id < b.id ? 1 : -1));
+    const retained = sorted.slice(0, retention);
+    const toStrip = sorted.slice(retention);
+
+    const oldestRetained = retained[retained.length - 1];
+    if (retention > 0 && oldestRetained?.kind === "u" && oldestRetained.data !== null) {
+      yield* promoteToSnapshot(storage, collection, recordId, oldestRetained, sorted);
+    }
+
+    for (const e of toStrip) {
+      if (e.data !== null) yield* storage.stripEventData(e.id);
+    }
   });
 }
 
@@ -36,6 +96,7 @@ export interface CollectionHandle<C extends CollectionDef<CollectionFields>> {
     data: Partial<Omit<InferRecord<C>, "id">>,
   ) => Effect.Effect<void, ValidationError | StorageError | NotFoundError>;
   readonly delete: (id: string) => Effect.Effect<void, StorageError | NotFoundError>;
+  readonly undo: (id: string) => Effect.Effect<void, StorageError | NotFoundError>;
   readonly get: (id: string) => Effect.Effect<InferRecord<C>, StorageError | NotFoundError>;
   readonly first: () => Effect.Effect<Option.Option<InferRecord<C>>, StorageError>;
   readonly count: () => Effect.Effect<number, StorageError>;
@@ -49,7 +110,7 @@ export interface CollectionHandle<C extends CollectionDef<CollectionFields>> {
 function mapRecord<C extends CollectionDef<CollectionFields>>(
   record: Record<string, unknown>,
 ): InferRecord<C> {
-  const { _deleted, _updatedAt, _author, ...fields } = record;
+  const { _d, _u, _a, _e, ...fields } = record;
   return fields as InferRecord<C>;
 }
 
@@ -62,6 +123,7 @@ export function createCollectionHandle<C extends CollectionDef<CollectionFields>
   validator: RecordValidator<C["fields"]>,
   partialValidator: PartialValidator<C["fields"]>,
   makeEventId: () => string,
+  localAuthor?: string,
   onWrite?: OnWriteCallback,
 ): CollectionHandle<C> {
   const collectionName = def.name;
@@ -74,7 +136,7 @@ export function createCollectionHandle<C extends CollectionDef<CollectionFields>
       yield* notifyChange(watchCtx, {
         collection: collectionName,
         recordId: event.recordId,
-        kind: event.kind,
+        kind: KIND_FULL[event.kind],
       });
     });
 
@@ -89,9 +151,10 @@ export function createCollectionHandle<C extends CollectionDef<CollectionFields>
           id: makeEventId(),
           collection: collectionName,
           recordId: id,
-          kind: "create",
+          kind: "c",
           data: fullRecord as unknown as Record<string, unknown>,
           createdAt: Date.now(),
+          author: localAuthor,
         };
         yield* commitEvent(event);
         return id;
@@ -100,24 +163,26 @@ export function createCollectionHandle<C extends CollectionDef<CollectionFields>
     update: (id, data) =>
       Effect.gen(function* () {
         const existing = yield* storage.getRecord(collectionName, id);
-        if (!existing || existing._deleted) {
+        if (!existing || existing._d) {
           return yield* new NotFoundError({
             collection: collectionName,
             id,
           });
         }
         yield* partialValidator(data);
-        const { _deleted, _updatedAt, _author, _eventId, ...existingFields } = existing;
+        const { _d, _u, _a, _e, ...existingFields } = existing;
         const merged = { ...existingFields, ...data, id };
         yield* validator(merged);
 
+        const diff = deepDiff(existingFields, merged as Record<string, unknown>);
         const event: StoredEvent = {
           id: makeEventId(),
           collection: collectionName,
           recordId: id,
-          kind: "update",
-          data: merged as Record<string, unknown>,
+          kind: "u",
+          data: diff ?? { id },
           createdAt: Date.now(),
+          author: localAuthor,
         };
         yield* commitEvent(event);
 
@@ -127,7 +192,7 @@ export function createCollectionHandle<C extends CollectionDef<CollectionFields>
     delete: (id) =>
       Effect.gen(function* () {
         const existing = yield* storage.getRecord(collectionName, id);
-        if (!existing || existing._deleted) {
+        if (!existing || existing._d) {
           return yield* new NotFoundError({
             collection: collectionName,
             id,
@@ -138,9 +203,41 @@ export function createCollectionHandle<C extends CollectionDef<CollectionFields>
           id: makeEventId(),
           collection: collectionName,
           recordId: id,
-          kind: "delete",
+          kind: "d",
           data: null,
           createdAt: Date.now(),
+          author: localAuthor,
+        };
+        yield* commitEvent(event);
+
+        yield* pruneEvents(storage, collectionName, id, def.eventRetention);
+      }),
+
+    undo: (id) =>
+      Effect.gen(function* () {
+        const existing = yield* storage.getRecord(collectionName, id);
+        if (!existing) {
+          return yield* new NotFoundError({ collection: collectionName, id });
+        }
+
+        const events = sortChronologically(yield* storage.getEventsByRecord(collectionName, id));
+        if (events.length < 2) {
+          return yield* new NotFoundError({ collection: collectionName, id });
+        }
+
+        const state = replayState(id, events.slice(0, -1));
+        if (!state) {
+          return yield* new NotFoundError({ collection: collectionName, id });
+        }
+
+        const event: StoredEvent = {
+          id: makeEventId(),
+          collection: collectionName,
+          recordId: id,
+          kind: "u",
+          data: state,
+          createdAt: Date.now(),
+          author: localAuthor,
         };
         yield* commitEvent(event);
 
@@ -150,7 +247,7 @@ export function createCollectionHandle<C extends CollectionDef<CollectionFields>
     get: (id) =>
       Effect.gen(function* () {
         const record = yield* storage.getRecord(collectionName, id);
-        if (!record || record._deleted) {
+        if (!record || record._d) {
           return yield* new NotFoundError({
             collection: collectionName,
             id,
@@ -161,14 +258,14 @@ export function createCollectionHandle<C extends CollectionDef<CollectionFields>
 
     first: () =>
       Effect.map(storage.getAllRecords(collectionName), (all) => {
-        const found = all.find((r) => !r._deleted);
+        const found = all.find((r) => !r._d);
         return found ? Option.some(mapRecord<C>(found)) : Option.none();
       }),
 
     count: () =>
       Effect.map(
         storage.getAllRecords(collectionName),
-        (all) => all.filter((r) => !r._deleted).length,
+        (all) => all.filter((r) => !r._d).length,
       ),
 
     watch: () =>
