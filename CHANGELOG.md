@@ -1,5 +1,12 @@
 # tablinum
 
+## 0.3.0
+
+### Minor Changes
+
+- ce23e40: Add user profile update functionality and introduce diffing engine
+- 16c3635: Makes it possible to nest schemas. Updates example Svelte application.
+
 ## 0.2.0
 
 ### Minor Changes
