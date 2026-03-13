@@ -1,5 +1,11 @@
 # tablinum
 
+## 0.5.0
+
+### Minor Changes
+
+- 28df868: Adds logging functionality
+
 ## 0.4.0
 
 ### Minor Changes
