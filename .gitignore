@@ -5,3 +5,4 @@ dist/
 examples/vanilla/*.js
 examples/svelte/.svelte-kit/
 examples/svelte/build/
+docker/data/

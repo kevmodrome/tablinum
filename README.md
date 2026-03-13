@@ -211,6 +211,28 @@ Tablinum syncs through Nostr relays that support [NIP-77 (Negentropy)](https://g
 - **Use a public relay** — find NIP-77 compatible relays at [nostrwat.ch](https://nostrwat.ch)
 - **Self-host a relay** — [strfry](https://github.com/hoytech/strfry) is a good choice if you want full control over where your users' data is stored
 
+## Development
+
+### Local relays
+
+To run the example app or integration tests against local relays, spin up three [strfry](https://github.com/hoytech/strfry) instances with Docker:
+
+```bash
+bun run relays        # starts 3 relays on ports 7984, 7985, 7986
+bun run relays:down   # stop relays (data is preserved)
+bun run relays:clean  # stop relays and delete all data
+```
+
+The first run builds strfry from source, which takes a few minutes. Subsequent starts are instant.
+
+Then point your app at the local relays:
+
+```typescript
+relays: ["ws://localhost:7984", "ws://localhost:7985", "ws://localhost:7986"]
+```
+
+The Svelte example app (`bun run demo:svelte`) is pre-configured to use these local relays.
+
 ## License
 
 MIT

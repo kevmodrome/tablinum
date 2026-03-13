@@ -35,7 +35,10 @@
     "build": "bun build src/index.ts --outdir dist --format esm --packages external && bun build src/svelte/index.svelte.ts --outdir dist/svelte --format esm --packages external && tsc -p tsconfig.build.json --noCheck && tsc -p tsconfig.build.svelte.json --noCheck",
     "changeset": "changeset",
     "version": "changeset version",
-    "release": "changeset publish"
+    "release": "changeset publish",
+    "relays": "docker compose up -d",
+    "relays:down": "docker compose down",
+    "relays:clean": "docker compose down -v"
   },
   "dependencies": {
     "@noble/curves": "^2.0.1",
