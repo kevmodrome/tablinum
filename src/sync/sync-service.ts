@@ -1,4 +1,5 @@
-import { Effect, Option, Ref, Schedule, Scope } from "effect";
+import { Effect, Layer, Option, References, Ref, Schedule, Scope } from "effect";
+import type { LogLevel } from "effect";
 import type { NostrEvent } from "nostr-tools/pure";
 import type { Filter } from "nostr-tools/filter";
 import { unwrapEvent } from "nostr-tools/nip59";
@@ -39,11 +40,14 @@ export function createSyncHandle(
   personalPrivateKey: Uint8Array,
   personalPublicKey: string,
   scope: Scope.Scope,
+  logLevel: LogLevel.LogLevel,
   onSyncError?: ((error: unknown) => void) | undefined,
   onNewAuthor?: ((pubkey: string) => void) | undefined,
   onRemoved?: ((notice: RemovalNotice) => void) | undefined,
   onMembersChanged?: (() => void) | undefined,
 ): SyncHandle {
+  const logLayer = Layer.succeed(References.MinimumLogLevel, logLevel);
+
   const getSubscriptionPubKeys = (): string[] => {
     return getAllPublicKeys(epochStore);
   };
@@ -60,6 +64,7 @@ export function createSyncHandle(
       effect.pipe(
         Effect.tapError((e) => Effect.sync(() => onSyncError?.(e))),
         Effect.ignore,
+        Effect.provide(logLayer),
         Effect.forkIn(scope),
       ),
     );
@@ -140,6 +145,7 @@ export function createSyncHandle(
       if (rumor.pubkey) {
         const reject = yield* shouldRejectWrite(rumor.pubkey);
         if (reject) {
+          yield* Effect.logWarning("Rejected write from removed member", { author: rumor.pubkey.slice(0, 12) });
           yield* storage.putGiftWrap({ id: remoteGw.id, createdAt: remoteGw.created_at });
           return null;
         }
@@ -185,6 +191,8 @@ export function createSyncHandle(
       if (didApply && (kind === "u" || kind === "d")) {
         yield* pruneEvents(storage, collectionName, recordId, retention);
       }
+
+      yield* Effect.logDebug("Processed gift wrap", { collection: collectionName, recordId, kind, author: author?.slice(0, 12) });
 
       if (author && onNewAuthor) {
         onNewAuthor(author);
@@ -292,6 +300,7 @@ export function createSyncHandle(
     changedCollections: Set<string>,
   ): Effect.Effect<void, StorageError> =>
     Effect.gen(function* () {
+      yield* Effect.logDebug("Syncing relay", { relay: url });
       const reconcileResult = yield* Effect.result(
         reconcileWithRelay(storage, relay, url, Array.from(pubKeys)),
       );
@@ -301,6 +310,8 @@ export function createSyncHandle(
       }
 
       const { haveIds, needIds } = reconcileResult.success;
+
+      yield* Effect.logDebug("Relay reconciliation result", { relay: url, need: needIds.length, have: haveIds.length });
 
       if (needIds.length > 0) {
         const fetched = yield* relay.fetchEvents(needIds, url).pipe(
@@ -338,11 +349,12 @@ export function createSyncHandle(
           { discard: true },
         );
       }
-    });
+    }).pipe(Effect.withLogSpan("tablinum.syncRelay"));
 
   const handle: SyncHandle = {
     sync: () =>
       Effect.gen(function* () {
+        yield* Effect.logInfo("Sync started");
         yield* syncStatus.set("syncing");
         yield* Ref.set(watchCtx.replayingRef, true);
 
@@ -363,7 +375,9 @@ export function createSyncHandle(
             }),
           ),
         );
-      }),
+
+        yield* Effect.logInfo("Sync complete", { changed: [...changedCollections] });
+      }).pipe(Effect.withLogSpan("tablinum.sync")),
 
     publishLocal: (giftWrap) =>
       Effect.gen(function* () {

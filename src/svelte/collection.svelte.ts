@@ -1,4 +1,5 @@
-import { Effect, Fiber, Option, Stream } from "effect";
+import { Effect, Fiber, Option, References, Stream } from "effect";
+import type { LogLevel } from "effect";
 import type { CollectionDef, CollectionFields } from "../schema/collection.ts";
 import type { InferRecord } from "../schema/types.ts";
 import type { CollectionHandle } from "../crud/collection-handle.ts";
@@ -19,11 +20,13 @@ export class Collection<C extends CollectionDef<CollectionFields>> {
   #version = $state(0);
   #watchAbort: AbortController | null = null;
   #watchFiber: Fiber.Fiber<void, never> | null = null;
+  #logLevel: LogLevel.LogLevel = "None";
 
   /** @internal */
-  _bind(handle: CollectionHandle<C>): void {
+  _bind(handle: CollectionHandle<C>, logLevel: LogLevel.LogLevel = "None"): void {
     if (this.#handle) return;
     this.#handle = handle;
+    this.#logLevel = logLevel;
     this.error = null;
     this.#settleReady();
     this.#startWatch();
@@ -62,6 +65,7 @@ export class Collection<C extends CollectionDef<CollectionFields>> {
             }
           }),
         ),
+        Effect.provideService(References.MinimumLogLevel, this.#logLevel),
       ),
     );
   }
@@ -77,7 +81,9 @@ export class Collection<C extends CollectionDef<CollectionFields>> {
 
   #run = async <R>(getEffect: () => Effect.Effect<R, unknown>): Promise<R> => {
     await this.#ready.promise;
-    return Effect.runPromise(getEffect());
+    return Effect.runPromise(
+      getEffect().pipe(Effect.provideService(References.MinimumLogLevel, this.#logLevel)),
+    );
   };
 
   add = (data: Omit<InferRecord<C>, "id">): Promise<string> => {

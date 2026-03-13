@@ -19,6 +19,11 @@ export const IdentityLive = Layer.effect(
     const identity = yield* createIdentity(resolvedKey);
     yield* storage.putMeta("identity_key", identity.exportKey());
 
+    yield* Effect.logInfo("Identity loaded", {
+      publicKey: identity.publicKey.slice(0, 12) + "...",
+      source: config.privateKey ? "config" : resolvedKey ? "storage" : "generated",
+    });
+
     return identity;
   }),
 );

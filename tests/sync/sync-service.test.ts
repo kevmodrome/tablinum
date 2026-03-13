@@ -87,6 +87,7 @@ describe("sync service", () => {
         new Uint8Array(32),
         epochPublicKey,
         scope,
+        "None",
       );
 
       await Effect.runPromise(handle.startSubscription());

@@ -72,6 +72,12 @@ export function reconcileWithRelay(
       currentMsg = nextMsg;
     }
 
+    yield* Effect.logDebug("Negentropy reconciliation complete", {
+      relay: relayUrl,
+      have: allHaveIds.length,
+      need: allNeedIds.length,
+    });
+
     return { haveIds: allHaveIds, needIds: allNeedIds };
-  });
+  }).pipe(Effect.withLogSpan("tablinum.negentropy"));
 }

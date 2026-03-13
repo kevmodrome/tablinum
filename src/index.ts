@@ -5,7 +5,8 @@ export type { FieldDef, FieldKind } from "./schema/field.ts";
 export type { InferRecord, SchemaConfig } from "./schema/types.ts";
 
 export { createTablinum } from "./db/create-tablinum.ts";
-export type { TablinumConfig } from "./db/create-tablinum.ts";
+export type { TablinumConfig, TablinumLogLevel } from "./db/create-tablinum.ts";
+export { LogLevel } from "effect";
 export type { DatabaseHandle, SyncStatus } from "./db/database-handle.ts";
 
 export { encodeInvite, decodeInvite } from "./db/invite.ts";

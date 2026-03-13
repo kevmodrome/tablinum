@@ -23,6 +23,7 @@ export const EpochStoreLive = Layer.effect(
     if (typeof idbRaw === "string") {
       const idbStore = deserializeEpochStore(idbRaw);
       if (Option.isSome(idbStore)) {
+        yield* Effect.logInfo("Epoch store loaded", { source: "storage", epochs: idbStore.value.epochs.size });
         return idbStore.value;
       }
     }
@@ -30,6 +31,7 @@ export const EpochStoreLive = Layer.effect(
     if (config.epochKeys && config.epochKeys.length > 0) {
       const store = createEpochStoreFromInputs(config.epochKeys);
       yield* storage.putMeta("epochs", stringifyEpochStore(store));
+      yield* Effect.logInfo("Epoch store loaded", { source: "config", epochs: store.epochs.size });
       return store;
     }
 
@@ -38,6 +40,7 @@ export const EpochStoreLive = Layer.effect(
       { createdBy: identity.publicKey },
     );
     yield* storage.putMeta("epochs", stringifyEpochStore(store));
+    yield* Effect.logInfo("Epoch store loaded", { source: "generated", epochs: store.epochs.size });
     return store;
   }),
 );
