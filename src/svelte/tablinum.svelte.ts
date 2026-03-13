@@ -1,4 +1,5 @@
-import { Effect, Exit, Scope } from "effect";
+import { Effect, Exit, References, Scope } from "effect";
+import type { LogLevel } from "effect";
 import type { SchemaConfig } from "../schema/types.ts";
 import type { CollectionDef, CollectionFields } from "../schema/collection.ts";
 import type { DatabaseHandle, SyncStatus } from "../db/database-handle.ts";
@@ -9,6 +10,7 @@ import {
   createTablinum as coreCreateTablinum,
   type TablinumConfig,
 } from "../db/create-tablinum.ts";
+import { resolveLogLevel } from "../db/create-tablinum.ts";
 import { Collection } from "./collection.svelte.ts";
 import { ClosedError } from "../errors.ts";
 import { createDeferred } from "./deferred.ts";
@@ -31,9 +33,11 @@ export class Tablinum<S extends SchemaConfig> {
   #unsubscribeRelayStatus: (() => void) | null = null;
   #closed = false;
   #readyState = createDeferred<void>();
+  #logLevel: LogLevel.LogLevel;
 
   constructor(config: TablinumConfig<S>) {
     this.ready = this.#readyState.promise;
+    this.#logLevel = resolveLogLevel(config.logLevel);
     this.#init(config);
   }
 
@@ -46,10 +50,10 @@ export class Tablinum<S extends SchemaConfig> {
   }
 
   #bindCollections(handle: DatabaseHandle<S>): void {
-    this.#members._bind(handle.members);
+    this.#members._bind(handle.members, this.#logLevel);
 
     for (const [name, collection] of this.#collections) {
-      collection._bind(handle.collection(name as string & keyof S));
+      collection._bind(handle.collection(name as string & keyof S), this.#logLevel);
     }
   }
 
@@ -59,7 +63,9 @@ export class Tablinum<S extends SchemaConfig> {
     const handle = this.#requireReady();
     try {
       this.error = null;
-      return await Effect.runPromise(run(handle));
+      return await Effect.runPromise(
+        run(handle).pipe(Effect.provideService(References.MinimumLogLevel, this.#logLevel)),
+      );
     } catch (e) {
       this.error = e instanceof Error ? e : new Error(String(e));
       throw this.error;
@@ -125,7 +131,7 @@ export class Tablinum<S extends SchemaConfig> {
       col = new Collection() as Collection<CollectionDef<CollectionFields>>;
       this.#collections.set(name, col);
       if (this.#handle) {
-        col._bind(this.#handle.collection(name));
+        col._bind(this.#handle.collection(name), this.#logLevel);
       }
     }
     return col as unknown as Collection<S[K]>;

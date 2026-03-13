@@ -8,9 +8,11 @@ export const StorageLive = Layer.effect(
   Storage,
   Effect.gen(function* () {
     const config = yield* Config;
-    return yield* openIDBStorage(config.dbName, {
+    const handle = yield* openIDBStorage(config.dbName, {
       ...config.schema,
       _members: membersCollectionDef,
     });
+    yield* Effect.logInfo("Storage opened", { dbName: config.dbName });
+    return handle;
   }),
 );

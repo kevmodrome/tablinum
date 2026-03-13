@@ -198,6 +198,66 @@ Use it in a component:
 - **`db.status`** tracks initialization and terminal state; **`db.syncStatus`** tracks sync activity
 - **`createTablinum(config)`** still exists as a convenience and resolves once `db.ready` completes
 
+## Logging
+
+Tablinum uses [Effect's built-in logging](https://effect.website/docs/observability/logging/) under the hood. By default, logging is completely silent. Set `logLevel` in your config to enable it:
+
+```typescript
+const db = yield* createTablinum({
+  schema,
+  relays: ["wss://relay.example.com"],
+  logLevel: "debug", // "debug" | "info" | "warning" | "error" | "none"
+});
+```
+
+Wire it to an environment variable for easy toggling:
+
+```typescript
+// Effect API
+createTablinum({
+  schema,
+  relays: ["wss://relay.example.com"],
+  logLevel: import.meta.env.VITE_LOG_LEVEL ?? "none",
+});
+
+// Svelte API
+new Tablinum({
+  schema,
+  relays: ["wss://relay.example.com"],
+  logLevel: import.meta.env.VITE_LOG_LEVEL ?? "none",
+});
+```
+
+### Log levels
+
+| Level | What you see |
+|-------|-------------|
+| `"none"` | Nothing (default) |
+| `"error"` | Unrecoverable failures |
+| `"warning"` | Recoverable issues (e.g. rejected writes from removed members) |
+| `"info"` | Lifecycle milestones — storage opened, identity loaded, sync started/complete |
+| `"debug"` | Everything above plus CRUD operations (with record data), relay reconciliation details, gift wrap processing |
+
+### Log spans
+
+Key operations include timing spans that appear automatically in log output:
+
+```
+[11:50:31] INFO (#1) tablinum.init=13ms: Tablinum ready { ... }
+[11:50:41] INFO (#1) tablinum.sync=520ms: Sync complete { changed: ["todos"] }
+```
+
+Spans: `tablinum.init`, `tablinum.sync`, `tablinum.syncRelay`, `tablinum.negentropy`.
+
+### Using Effect's LogLevel type
+
+Power users can also pass Effect's `LogLevel` type directly:
+
+```typescript
+import { LogLevel } from "tablinum";
+createTablinum({ ..., logLevel: LogLevel.Debug });
+```
+
 ## How it works
 
 Tablinum is built on [Effect](https://effect.website) and stores all data locally in [IndexedDB](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API).

@@ -1,4 +1,5 @@
-import { Effect, Option, Stream } from "effect";
+import { Effect, Option, References, Stream } from "effect";
+import type { LogLevel } from "effect";
 import type { CollectionDef, CollectionFields } from "../schema/collection.ts";
 import type { InferRecord } from "../schema/types.ts";
 import type { RecordValidator, PartialValidator } from "../schema/validate.ts";
@@ -125,8 +126,11 @@ export function createCollectionHandle<C extends CollectionDef<CollectionFields>
   makeEventId: () => string,
   localAuthor?: string,
   onWrite?: OnWriteCallback,
+  logLevel: LogLevel.LogLevel = "None",
 ): CollectionHandle<C> {
   const collectionName = def.name;
+  const withLog = <A, E>(effect: Effect.Effect<A, E>): Effect.Effect<A, E> =>
+    Effect.provideService(effect, References.MinimumLogLevel, logLevel);
 
   const commitEvent = (event: StoredEvent): Effect.Effect<void, StorageError> =>
     Effect.gen(function* () {
@@ -142,76 +146,85 @@ export function createCollectionHandle<C extends CollectionDef<CollectionFields>
 
   const handle: CollectionHandle<C> = {
     add: (data) =>
-      Effect.gen(function* () {
-        const id = uuidv7();
-        const fullRecord = { id, ...data };
-        yield* validator(fullRecord);
+      withLog(
+        Effect.gen(function* () {
+          const id = uuidv7();
+          const fullRecord = { id, ...data };
+          yield* validator(fullRecord);
 
-        const event: StoredEvent = {
-          id: makeEventId(),
-          collection: collectionName,
-          recordId: id,
-          kind: "c",
-          data: fullRecord as unknown as Record<string, unknown>,
-          createdAt: Date.now(),
-          author: localAuthor,
-        };
-        yield* commitEvent(event);
-        return id;
-      }),
+          const event: StoredEvent = {
+            id: makeEventId(),
+            collection: collectionName,
+            recordId: id,
+            kind: "c",
+            data: fullRecord as unknown as Record<string, unknown>,
+            createdAt: Date.now(),
+            author: localAuthor,
+          };
+          yield* commitEvent(event);
+          yield* Effect.logDebug("Record added", { collection: collectionName, recordId: id, data: fullRecord });
+          return id;
+        }),
+      ),
 
     update: (id, data) =>
-      Effect.gen(function* () {
-        const existing = yield* storage.getRecord(collectionName, id);
-        if (!existing || existing._d) {
-          return yield* new NotFoundError({
+      withLog(
+        Effect.gen(function* () {
+          const existing = yield* storage.getRecord(collectionName, id);
+          if (!existing || existing._d) {
+            return yield* new NotFoundError({
+              collection: collectionName,
+              id,
+            });
+          }
+          yield* partialValidator(data);
+          const { _d, _u, _a, _e, ...existingFields } = existing;
+          const merged = { ...existingFields, ...data, id };
+          yield* validator(merged);
+
+          const diff = deepDiff(existingFields, merged as Record<string, unknown>);
+          const event: StoredEvent = {
+            id: makeEventId(),
             collection: collectionName,
-            id,
-          });
-        }
-        yield* partialValidator(data);
-        const { _d, _u, _a, _e, ...existingFields } = existing;
-        const merged = { ...existingFields, ...data, id };
-        yield* validator(merged);
+            recordId: id,
+            kind: "u",
+            data: diff ?? { id },
+            createdAt: Date.now(),
+            author: localAuthor,
+          };
+          yield* commitEvent(event);
+          yield* Effect.logDebug("Record updated", { collection: collectionName, recordId: id, data: diff });
 
-        const diff = deepDiff(existingFields, merged as Record<string, unknown>);
-        const event: StoredEvent = {
-          id: makeEventId(),
-          collection: collectionName,
-          recordId: id,
-          kind: "u",
-          data: diff ?? { id },
-          createdAt: Date.now(),
-          author: localAuthor,
-        };
-        yield* commitEvent(event);
-
-        yield* pruneEvents(storage, collectionName, id, def.eventRetention);
-      }),
+          yield* pruneEvents(storage, collectionName, id, def.eventRetention);
+        }),
+      ),
 
     delete: (id) =>
-      Effect.gen(function* () {
-        const existing = yield* storage.getRecord(collectionName, id);
-        if (!existing || existing._d) {
-          return yield* new NotFoundError({
+      withLog(
+        Effect.gen(function* () {
+          const existing = yield* storage.getRecord(collectionName, id);
+          if (!existing || existing._d) {
+            return yield* new NotFoundError({
+              collection: collectionName,
+              id,
+            });
+          }
+
+          const event: StoredEvent = {
+            id: makeEventId(),
             collection: collectionName,
-            id,
-          });
-        }
+            recordId: id,
+            kind: "d",
+            data: null,
+            createdAt: Date.now(),
+            author: localAuthor,
+          };
+          yield* commitEvent(event);
+          yield* Effect.logDebug("Record deleted", { collection: collectionName, recordId: id });
 
-        const event: StoredEvent = {
-          id: makeEventId(),
-          collection: collectionName,
-          recordId: id,
-          kind: "d",
-          data: null,
-          createdAt: Date.now(),
-          author: localAuthor,
-        };
-        yield* commitEvent(event);
-
-        yield* pruneEvents(storage, collectionName, id, def.eventRetention);
-      }),
+          yield* pruneEvents(storage, collectionName, id, def.eventRetention);
+        }),
+      ),
 
     undo: (id) =>
       Effect.gen(function* () {

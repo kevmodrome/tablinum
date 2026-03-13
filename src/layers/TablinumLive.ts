@@ -1,4 +1,4 @@
-import { Effect, Exit, Layer, Option, PubSub, Ref, Scope } from "effect";
+import { Effect, Exit, Layer, Option, PubSub, References, Ref, Scope } from "effect";
 import type { NostrEvent } from "nostr-tools/pure";
 import type { SchemaConfig } from "../schema/types.ts";
 import type { CollectionDef, CollectionFields } from "../schema/collection.ts";
@@ -112,6 +112,8 @@ export const TablinumLive = Layer.effect(
     const syncStatus = yield* SyncStatus;
     const scope = yield* Effect.scope;
 
+    const logLayer = Layer.succeed(References.MinimumLogLevel, config.logLevel);
+
     const pubsub = yield* PubSub.unbounded<ChangeEvent>();
     const replayingRef = yield* Ref.make(false);
     const closedRef = yield* Ref.make(false);
@@ -136,6 +138,7 @@ export const TablinumLive = Layer.effect(
       identity.privateKey,
       identity.publicKey,
       scope,
+      config.logLevel,
       config.onSyncError ? (error) => reportSyncError(config.onSyncError, error) : undefined,
       (pubkey) => notifyAuthor?.(pubkey),
       config.onRemoved,
@@ -240,7 +243,7 @@ export const TablinumLive = Layer.effect(
               config.onMembersChanged?.();
             }
           }
-        }).pipe(Effect.ignore, Effect.forkIn(scope)),
+        }).pipe(Effect.ignore, Effect.provide(logLayer), Effect.forkIn(scope)),
       );
     };
 
@@ -257,11 +260,18 @@ export const TablinumLive = Layer.effect(
         uuidv7,
         identity.publicKey,
         onWrite,
+        config.logLevel,
       );
       handles.set(def.name, handle as AnyCollectionHandle);
     }
 
     yield* syncHandle.startSubscription();
+
+    yield* Effect.logInfo("Tablinum ready", {
+      dbName: config.dbName,
+      collections: schemaEntries.map(([name]) => name),
+      relays: config.relays,
+    });
 
     const selfMember = yield* storage.getRecord("_members", identity.publicKey);
     if (!selfMember) {
@@ -272,21 +282,28 @@ export const TablinumLive = Layer.effect(
       });
     }
 
+    const withLog = <A, E>(effect: Effect.Effect<A, E>): Effect.Effect<A, E> =>
+      Effect.provideService(effect, References.MinimumLogLevel, config.logLevel);
+
     const ensureOpen = <A, E>(effect: Effect.Effect<A, E>): Effect.Effect<A, E | StorageError> =>
-      Effect.gen(function* () {
-        if (yield* Ref.get(closedRef)) {
-          return yield* new StorageError({ message: "Database is closed" });
-        }
-        return yield* effect;
-      });
+      withLog(
+        Effect.gen(function* () {
+          if (yield* Ref.get(closedRef)) {
+            return yield* new StorageError({ message: "Database is closed" });
+          }
+          return yield* effect;
+        }),
+      );
 
     const ensureSyncOpen = <A, E>(effect: Effect.Effect<A, E>): Effect.Effect<A, E | SyncError> =>
-      Effect.gen(function* () {
-        if (yield* Ref.get(closedRef)) {
-          return yield* new SyncError({ message: "Database is closed", phase: "init" });
-        }
-        return yield* effect;
-      });
+      withLog(
+        Effect.gen(function* () {
+          if (yield* Ref.get(closedRef)) {
+            return yield* new SyncError({ message: "Database is closed", phase: "init" });
+          }
+          return yield* effect;
+        }),
+      );
 
     const dbHandle: DatabaseHandle<SchemaConfig> = {
       collection: (name) => {
@@ -306,11 +323,13 @@ export const TablinumLive = Layer.effect(
       }),
 
       close: () =>
-        Effect.gen(function* () {
-          if (yield* Ref.get(closedRef)) return;
-          yield* Ref.set(closedRef, true);
-          yield* Scope.close(scope, Exit.void);
-        }),
+        withLog(
+          Effect.gen(function* () {
+            if (yield* Ref.get(closedRef)) return;
+            yield* Ref.set(closedRef, true);
+            yield* Scope.close(scope, Exit.void);
+          }),
+        ),
 
       rebuild: () =>
         ensureOpen(
@@ -433,5 +452,5 @@ export const TablinumLive = Layer.effect(
     };
 
     return dbHandle;
-  }),
+  }).pipe(Effect.withLogSpan("tablinum.init")),
 ).pipe(Layer.provide(AllServicesLive));
