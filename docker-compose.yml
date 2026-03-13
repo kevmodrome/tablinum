@@ -1,0 +1,32 @@
+services:
+  relay1:
+    build:
+      context: ./docker
+    ports:
+      - "7984:7777"
+    volumes:
+      - ./docker/strfry.conf:/etc/strfry.conf:ro
+      - relay1-data:/app/strfry-db
+
+  relay2:
+    build:
+      context: ./docker
+    ports:
+      - "7985:7777"
+    volumes:
+      - ./docker/strfry.conf:/etc/strfry.conf:ro
+      - relay2-data:/app/strfry-db
+
+  relay3:
+    build:
+      context: ./docker
+    ports:
+      - "7986:7777"
+    volumes:
+      - ./docker/strfry.conf:/etc/strfry.conf:ro
+      - relay3-data:/app/strfry-db
+
+volumes:
+  relay1-data:
+  relay2-data:
+  relay3-data:

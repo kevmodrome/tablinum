@@ -53,7 +53,7 @@ export function initDb(opts?: { onRemoved?: (info: RemovedInfo) => void }) {
 
   _db = new Tablinum({
     schema,
-    relays: invite?.relays ?? ["wss://relay.nostr.place"],
+    relays: invite?.relays ?? ["ws://localhost:7984", "ws://localhost:7985", "ws://localhost:7986"],
     dbName: invite?.dbName ?? "tablinum-svelte-demo",
     epochKeys: invite?.epochKeys,
     onSyncError: (err) => {
