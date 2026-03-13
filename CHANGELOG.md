@@ -1,5 +1,11 @@
 # tablinum
 
+## 0.4.0
+
+### Minor Changes
+
+- 31314a5: Adds dev instructions and docker-compose for running local relays
+
 ## 0.3.0
 
 ### Minor Changes
