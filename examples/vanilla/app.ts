@@ -1,5 +1,5 @@
 import { Effect, Stream } from "effect";
-import { field, collection, createTablinum } from "../../src/index.ts";
+import { field, collection, createTablinum } from "tablinum";
 
 // Read key from URL if present: ?key=<hex>
 function getKeyFromUrl(): Uint8Array | undefined {

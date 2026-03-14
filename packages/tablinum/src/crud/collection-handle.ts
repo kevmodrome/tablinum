@@ -162,7 +162,11 @@ export function createCollectionHandle<C extends CollectionDef<CollectionFields>
             author: localAuthor,
           };
           yield* commitEvent(event);
-          yield* Effect.logDebug("Record added", { collection: collectionName, recordId: id, data: fullRecord });
+          yield* Effect.logDebug("Record added", {
+            collection: collectionName,
+            recordId: id,
+            data: fullRecord,
+          });
           return id;
         }),
       ),
@@ -193,7 +197,11 @@ export function createCollectionHandle<C extends CollectionDef<CollectionFields>
             author: localAuthor,
           };
           yield* commitEvent(event);
-          yield* Effect.logDebug("Record updated", { collection: collectionName, recordId: id, data: diff });
+          yield* Effect.logDebug("Record updated", {
+            collection: collectionName,
+            recordId: id,
+            data: diff,
+          });
 
           yield* pruneEvents(storage, collectionName, id, def.eventRetention);
         }),
@@ -276,10 +284,7 @@ export function createCollectionHandle<C extends CollectionDef<CollectionFields>
       }),
 
     count: () =>
-      Effect.map(
-        storage.getAllRecords(collectionName),
-        (all) => all.filter((r) => !r._d).length,
-      ),
+      Effect.map(storage.getAllRecords(collectionName), (all) => all.filter((r) => !r._d).length),
 
     watch: () =>
       watchCollection<InferRecord<C>>(watchCtx, storage, collectionName, undefined, mapRecord),

@@ -23,7 +23,10 @@ export const EpochStoreLive = Layer.effect(
     if (typeof idbRaw === "string") {
       const idbStore = deserializeEpochStore(idbRaw);
       if (Option.isSome(idbStore)) {
-        yield* Effect.logInfo("Epoch store loaded", { source: "storage", epochs: idbStore.value.epochs.size });
+        yield* Effect.logInfo("Epoch store loaded", {
+          source: "storage",
+          epochs: idbStore.value.epochs.size,
+        });
         return idbStore.value;
       }
     }

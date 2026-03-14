@@ -67,18 +67,22 @@ describe("field builders", () => {
   });
 
   test("field.optional(field.object()) works", () => {
-    const f = field.optional(field.object({
-      x: field.number(),
-    }));
+    const f = field.optional(
+      field.object({
+        x: field.number(),
+      }),
+    );
     expect(f.kind).toBe("object");
     expect(f.isOptional).toBe(true);
     expect(f.fields!.x.kind).toBe("number");
   });
 
   test("field.array(field.object()) works", () => {
-    const f = field.array(field.object({
-      tag: field.string(),
-    }));
+    const f = field.array(
+      field.object({
+        tag: field.string(),
+      }),
+    );
     expect(f.kind).toBe("object");
     expect(f.isArray).toBe(true);
     expect(f.fields!.tag.kind).toBe("string");

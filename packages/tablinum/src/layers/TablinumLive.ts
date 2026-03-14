@@ -121,7 +121,9 @@ export const TablinumLive = Layer.effect(
 
     const schemaEntries = Object.entries(config.schema) as CollectionEntry[];
     const allSchemaEntries = [...schemaEntries, ["_members", membersCollectionDef] as const];
-    const knownCollections = new Map(allSchemaEntries.map(([, def]) => [def.name, def.eventRetention]));
+    const knownCollections = new Map(
+      allSchemaEntries.map(([, def]) => [def.name, def.eventRetention]),
+    );
 
     let notifyAuthor: ((pubkey: string) => void) | undefined;
 
@@ -147,8 +149,7 @@ export const TablinumLive = Layer.effect(
 
     const onWrite: OnWriteCallback = (event) =>
       Effect.gen(function* () {
-        const content =
-          event.kind === "d" ? JSON.stringify(null) : JSON.stringify(event.data);
+        const content = event.kind === "d" ? JSON.stringify(null) : JSON.stringify(event.data);
         const dTag = `${event.collection}:${event.recordId}`;
 
         const wrapResult = yield* Effect.result(

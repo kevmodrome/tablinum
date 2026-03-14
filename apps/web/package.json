@@ -1,5 +1,5 @@
 {
-  "name": "tablinum-svelte-example",
+  "name": "tablinum-web",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,7 +8,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "effect": "4.0.0-beta.28",
     "tablinum": "workspace:*"
   },
   "devDependencies": {

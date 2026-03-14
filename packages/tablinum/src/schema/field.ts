@@ -27,9 +27,8 @@ export const field = {
   number: () => make<number>("number", false, false),
   boolean: () => make<boolean>("boolean", false, false),
   json: () => make<unknown>("json", false, false),
-  object: <F extends Record<string, FieldDef<unknown>>>(
-    fields: F,
-  ): FieldDef<InferFields<F>> => make("object", false, false, fields as Record<string, FieldDef<unknown>>),
+  object: <F extends Record<string, FieldDef<unknown>>>(fields: F): FieldDef<InferFields<F>> =>
+    make("object", false, false, fields as Record<string, FieldDef<unknown>>),
   optional: <T>(inner: FieldDef<T>): FieldDef<T | undefined> =>
     make(inner.kind, true, inner.isArray, inner.fields),
   array: <T>(inner: FieldDef<T>): FieldDef<ReadonlyArray<T>> =>

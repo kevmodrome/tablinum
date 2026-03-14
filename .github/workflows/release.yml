@@ -33,9 +33,10 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Build
-        run: bun run build
+        run: bun run --filter tablinum build
 
       - name: Publish to npm
+        working-directory: packages/tablinum
         run: npm publish --provenance --access public
         env:
           NPM_CONFIG_PROVENANCE: true
