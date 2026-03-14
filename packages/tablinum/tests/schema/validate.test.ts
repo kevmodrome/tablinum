@@ -125,9 +125,7 @@ describe("schema validation", () => {
         }),
       });
       const validate = buildValidator("contacts", def);
-      const result = yield* Effect.result(
-        validate({ id: "abc", address: { city: 42 } }),
-      );
+      const result = yield* Effect.result(validate({ id: "abc", address: { city: 42 } }));
       expect(result._tag).toBe("Failure");
     }),
   );
@@ -158,9 +156,11 @@ describe("schema validation", () => {
     Effect.gen(function* () {
       const def = collection("contacts", {
         name: field.string(),
-        address: field.optional(field.object({
-          city: field.string(),
-        })),
+        address: field.optional(
+          field.object({
+            city: field.string(),
+          }),
+        ),
       });
       const validate = buildValidator("contacts", def);
       const result = yield* validate({

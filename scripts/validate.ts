@@ -405,8 +405,14 @@ async function validate(): Promise<ValidationResult> {
   const checks: Check[] = [
     { name: "oxfmt", fn: runFormatCheck },
     { name: "oxlint", fn: runLint },
-    { name: "tsc:core", fn: () => runTypeCheck("tsc:core", "tsconfig.build.json") },
-    { name: "tsc:svelte", fn: () => runTypeCheck("tsc:svelte", "tsconfig.build.svelte.json") },
+    {
+      name: "tsc:core",
+      fn: () => runTypeCheck("tsc:core", "packages/tablinum/tsconfig.build.json"),
+    },
+    {
+      name: "tsc:svelte",
+      fn: () => runTypeCheck("tsc:svelte", "packages/tablinum/tsconfig.build.svelte.json"),
+    },
     { name: "vitest", fn: runTests },
   ];
 

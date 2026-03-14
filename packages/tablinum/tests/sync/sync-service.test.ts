@@ -82,7 +82,10 @@ describe("sync service", () => {
         syncStatus,
         watchCtx,
         ["wss://relay.example.com"],
-        new Map([["todos", 1], ["_members", 1]]),
+        new Map([
+          ["todos", 1],
+          ["_members", 1],
+        ]),
         epochStore,
         new Uint8Array(32),
         epochPublicKey,

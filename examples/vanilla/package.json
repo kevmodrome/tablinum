@@ -1,0 +1,15 @@
+{
+  "name": "tablinum-example-vanilla",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run serve.ts"
+  },
+  "dependencies": {
+    "effect": "4.0.0-beta.28",
+    "tablinum": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.10"
+  }
+}

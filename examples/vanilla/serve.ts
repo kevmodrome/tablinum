@@ -1,6 +1,6 @@
 import { $ } from "bun";
 
-const dir = "examples/vanilla";
+const dir = import.meta.dir;
 
 // Bundle app.ts for the browser
 console.log("Bundling...");

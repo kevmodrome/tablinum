@@ -1,5 +1,5 @@
 {
-  "extends": "./tsconfig.json",
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "noEmit": false,
     "declaration": true,
@@ -9,5 +9,5 @@
     "rootDir": "src"
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["tests/**/*.ts", "scripts/**/*.ts", "src/**/*.svelte.ts"]
+  "exclude": ["tests/**/*.ts", "src/**/*.svelte.ts"]
 }

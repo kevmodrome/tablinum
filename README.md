@@ -203,11 +203,13 @@ Use it in a component:
 Tablinum uses [Effect's built-in logging](https://effect.website/docs/observability/logging/) under the hood. By default, logging is completely silent. Set `logLevel` in your config to enable it:
 
 ```typescript
-const db = yield* createTablinum({
-  schema,
-  relays: ["wss://relay.example.com"],
-  logLevel: "debug", // "debug" | "info" | "warning" | "error" | "none"
-});
+const db =
+  yield *
+  createTablinum({
+    schema,
+    relays: ["wss://relay.example.com"],
+    logLevel: "debug", // "debug" | "info" | "warning" | "error" | "none"
+  });
 ```
 
 Wire it to an environment variable for easy toggling:
@@ -230,13 +232,13 @@ new Tablinum({
 
 ### Log levels
 
-| Level | What you see |
-|-------|-------------|
-| `"none"` | Nothing (default) |
-| `"error"` | Unrecoverable failures |
-| `"warning"` | Recoverable issues (e.g. rejected writes from removed members) |
-| `"info"` | Lifecycle milestones — storage opened, identity loaded, sync started/complete |
-| `"debug"` | Everything above plus CRUD operations (with record data), relay reconciliation details, gift wrap processing |
+| Level       | What you see                                                                                                 |
+| ----------- | ------------------------------------------------------------------------------------------------------------ |
+| `"none"`    | Nothing (default)                                                                                            |
+| `"error"`   | Unrecoverable failures                                                                                       |
+| `"warning"` | Recoverable issues (e.g. rejected writes from removed members)                                               |
+| `"info"`    | Lifecycle milestones — storage opened, identity loaded, sync started/complete                                |
+| `"debug"`   | Everything above plus CRUD operations (with record data), relay reconciliation details, gift wrap processing |
 
 ### Log spans
 
@@ -288,7 +290,7 @@ The first run builds strfry from source, which takes a few minutes. Subsequent s
 Then point your app at the local relays:
 
 ```typescript
-relays: ["ws://localhost:7984", "ws://localhost:7985", "ws://localhost:7986"]
+relays: ["ws://localhost:7984", "ws://localhost:7985", "ws://localhost:7986"];
 ```
 
 The Svelte example app (`bun run demo:svelte`) is pre-configured to use these local relays.

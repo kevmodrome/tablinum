@@ -2,7 +2,7 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    include: ["tests/**/*.test.ts"],
-    setupFiles: ["tests/setup.ts"],
+    include: ["packages/tablinum/tests/**/*.test.ts"],
+    setupFiles: ["packages/tablinum/tests/setup.ts"],
   },
 });

@@ -145,7 +145,9 @@ export function createSyncHandle(
       if (rumor.pubkey) {
         const reject = yield* shouldRejectWrite(rumor.pubkey);
         if (reject) {
-          yield* Effect.logWarning("Rejected write from removed member", { author: rumor.pubkey.slice(0, 12) });
+          yield* Effect.logWarning("Rejected write from removed member", {
+            author: rumor.pubkey.slice(0, 12),
+          });
           yield* storage.putGiftWrap({ id: remoteGw.id, createdAt: remoteGw.created_at });
           return null;
         }
@@ -192,7 +194,12 @@ export function createSyncHandle(
         yield* pruneEvents(storage, collectionName, recordId, retention);
       }
 
-      yield* Effect.logDebug("Processed gift wrap", { collection: collectionName, recordId, kind, author: author?.slice(0, 12) });
+      yield* Effect.logDebug("Processed gift wrap", {
+        collection: collectionName,
+        recordId,
+        kind,
+        author: author?.slice(0, 12),
+      });
 
       if (author && onNewAuthor) {
         onNewAuthor(author);
@@ -311,7 +318,11 @@ export function createSyncHandle(
 
       const { haveIds, needIds } = reconcileResult.success;
 
-      yield* Effect.logDebug("Relay reconciliation result", { relay: url, need: needIds.length, have: haveIds.length });
+      yield* Effect.logDebug("Relay reconciliation result", {
+        relay: url,
+        need: needIds.length,
+        have: haveIds.length,
+      });
 
       if (needIds.length > 0) {
         const fetched = yield* relay.fetchEvents(needIds, url).pipe(
