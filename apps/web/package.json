@@ -14,7 +14,10 @@
     "@sveltejs/adapter-static": "^3.0.10",
     "@sveltejs/kit": "^2.54.0",
     "@sveltejs/vite-plugin-svelte": "^5.1.1",
+    "@tailwindcss/vite": "^4",
+    "shiki": "^4.0.2",
     "svelte": "^5.53.10",
+    "tailwindcss": "^4",
     "typescript": "^5.9.3",
     "vite": "^6.4.1"
   }
