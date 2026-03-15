@@ -63,19 +63,13 @@ export const db = new Tablinum({
 export const todos = db.collection("todos");`;
 
 	const svelteComponent = `<script lang="ts">
-  import { db, todos } from "$lib/db";
+  import { todos } from "$lib/db";
 
   let title = $state("");
-  let pending = $derived(
-    db.status === "ready"
-      ? await todos.where("done").equals(false).get()
-      : [],
-  );
+  let pending = $derived(await todos.where("done").equals(false).get());
 
-  async function addTodo(e: SubmitEvent) {
-    e.preventDefault();
-    if (!title.trim()) return;
-    await todos.add({ title: title.trim(), done: false });
+  async function addTodo() {
+    await todos.add({ title, done: false });
     title = "";
   }
 <\/script>
