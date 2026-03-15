@@ -157,6 +157,14 @@ export function openIDBStorage(
     const name = dbName ?? DB_NAME;
     const schemaSig = computeSchemaSig(schema);
 
+    if (typeof indexedDB === "undefined") {
+      return yield* Effect.fail(
+        new StorageError({
+          message: "IndexedDB is not available in this environment",
+        }),
+      );
+    }
+
     const probeDb: IDBPDatabase = yield* Effect.tryPromise({
       try: () => openDB(name),
       catch: (e) => new StorageError({ message: "Failed to open IndexedDB", cause: e }),

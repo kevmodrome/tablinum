@@ -1,0 +1,118 @@
+@import "tailwindcss";
+
+@theme {
+	--color-bg-deep: #0d0b09;
+	--color-bg-base: #171311;
+	--color-bg-surface: #211d1a;
+	--color-bg-elevated: #2c2723;
+	--color-text-primary: #f0ebe4;
+	--color-text-secondary: #9e958b;
+	--color-text-muted: #6b635a;
+	--color-accent: #e85d2a;
+	--color-accent-glow: #ff7a45;
+	--color-accent-deep: #8b3518;
+	--color-gold: #c9a84c;
+	--color-border: #362f2a;
+	--color-border-light: #44403c;
+
+	--font-display: "Bricolage Grotesque", system-ui, sans-serif;
+	--font-body: "Plus Jakarta Sans", system-ui, sans-serif;
+	--font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+	--animate-fade-in-up: fade-in-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+	--animate-fade-in: fade-in 0.5s ease both;
+	--animate-slide-in-left: slide-in-left 0.5s cubic-bezier(0.16, 1, 0.3, 1)
+		both;
+}
+
+@keyframes fade-in-up {
+	from {
+		opacity: 0;
+		transform: translateY(1.5rem);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+@keyframes fade-in {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+
+@keyframes slide-in-left {
+	from {
+		opacity: 0;
+		transform: translateX(-1rem);
+	}
+	to {
+		opacity: 1;
+		transform: translateX(0);
+	}
+}
+
+@layer base {
+	html {
+		scroll-behavior: smooth;
+	}
+
+	body {
+		background-color: var(--color-bg-base);
+		color: var(--color-text-primary);
+		font-family: var(--font-body);
+		line-height: 1.6;
+		-webkit-font-smoothing: antialiased;
+		-moz-osx-font-smoothing: grayscale;
+	}
+
+	h1,
+	h2,
+	h3,
+	h4 {
+		font-family: var(--font-display);
+		line-height: 1.2;
+		letter-spacing: -0.01em;
+	}
+
+	h1 {
+		font-weight: 700;
+	}
+	h2 {
+		font-weight: 600;
+	}
+	h3 {
+		font-weight: 600;
+	}
+	h4 {
+		font-weight: 500;
+	}
+
+	code {
+		font-family: var(--font-mono);
+		font-size: 0.875em;
+	}
+
+	::selection {
+		background-color: var(--color-accent-deep);
+		color: var(--color-text-primary);
+	}
+}
+
+/* Scroll-triggered animation base */
+.animate-on-scroll {
+	opacity: 0;
+	transform: translateY(1.5rem);
+	transition:
+		opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1),
+		transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.animate-on-scroll.visible {
+	opacity: 1;
+	transform: translateY(0);
+}
