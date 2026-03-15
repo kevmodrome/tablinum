@@ -3,6 +3,7 @@
 	import FeatureCard from "$lib/components/FeatureCard.svelte";
 	import MosaicPattern from "$lib/components/MosaicPattern.svelte";
 	import CopyInstall from "$lib/components/CopyInstall.svelte";
+	import SyncDemo from "$lib/components/SyncDemo.svelte";
 
 	let activeTab = $state<"svelte" | "effect">("svelte");
 
@@ -144,7 +145,7 @@ Effect.runPromise(Effect.scoped(program));`;
 </svelte:head>
 
 <!-- Hero -->
-<section class="relative flex min-h-[85vh] items-center justify-center overflow-hidden">
+<section class="relative overflow-hidden pt-16 pb-24 sm:pt-24">
 	<MosaicPattern />
 	<div class="relative z-10 mx-auto max-w-4xl px-6 text-center">
 		<h1
@@ -182,6 +183,14 @@ Effect.runPromise(Effect.scoped(program));`;
 				View on GitHub
 			</a>
 		</div>
+	</div>
+
+	<div class="relative z-10 mx-auto mt-16 max-w-5xl px-6 animate-fade-in-up" style="animation-delay: 500ms">
+		<SyncDemo />
+		<p class="mt-4 text-center text-sm text-text-muted">
+			Every record is gift-wrapped with NIP-59 encryption. The relay stores and forwards
+			encrypted blobs — it never sees your data.
+		</p>
 	</div>
 </section>
 
@@ -307,7 +316,7 @@ Effect.runPromise(Effect.scoped(program));`;
 </section>
 
 <!-- CTA -->
-<section class="border-t border-border bg-bg-deep py-24">
+<section class="border-t border-border py-24">
 	<div class="mx-auto max-w-2xl px-6 text-center animate-on-scroll">
 		<h2 class="text-3xl sm:text-4xl">Get started in minutes</h2>
 		<div class="mt-8">
