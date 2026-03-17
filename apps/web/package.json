@@ -8,7 +8,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "tablinum": "workspace:*"
+    "tablinum": "*"
   },
   "devDependencies": {
     "@sveltejs/adapter-static": "^3.0.10",

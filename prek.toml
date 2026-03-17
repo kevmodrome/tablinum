@@ -4,7 +4,7 @@ repo = "local"
 [[repos.hooks]]
 id = "validate"
 name = "Run validation"
-entry = "bun run scripts/validate.ts"
+entry = "npx tsx scripts/validate.ts"
 language = "system"
 always_run = true
 pass_filenames = false
