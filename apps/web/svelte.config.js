@@ -8,9 +8,7 @@ const config = {
     },
   },
   kit: {
-    adapter: adapter({
-      fallback: "index.html",
-    }),
+    adapter: adapter(),
     alias: {
       "tablinum/svelte": "../../packages/tablinum/src/svelte/index.svelte.ts",
       tablinum: "../../packages/tablinum/src/index.ts",
