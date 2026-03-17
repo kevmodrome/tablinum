@@ -8,8 +8,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "effect": "4.0.0-beta.28",
-    "tablinum": "workspace:*"
+    "effect": "4.0.0-beta.31",
+    "tablinum": "*"
   },
   "devDependencies": {
     "@sveltejs/adapter-static": "^3.0.10",
