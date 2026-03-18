@@ -28,7 +28,7 @@
 	});
 </script>
 
-<div class="code-block group relative overflow-hidden rounded-xl border border-border bg-bg-surface">
+<div class="code-block group relative my-6 overflow-hidden rounded-xl border border-border bg-bg-surface">
 	{#if title}
 		<div class="flex items-center justify-between border-b border-border bg-bg-elevated px-4 py-2">
 			<span class="font-mono text-xs text-text-muted">{title}</span>

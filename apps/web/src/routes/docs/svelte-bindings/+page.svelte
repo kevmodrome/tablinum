@@ -223,6 +223,7 @@ export const todos = db.collection("todos");`;
 		<tr><td><code>get(id)</code></td><td><code>Promise&lt;T&gt;</code></td></tr>
 		<tr><td><code>update(id, data)</code></td><td><code>Promise&lt;void&gt;</code></td></tr>
 		<tr><td><code>delete(id)</code></td><td><code>Promise&lt;void&gt;</code></td></tr>
+		<tr><td><code>undo(id)</code></td><td><code>Promise&lt;void&gt;</code></td></tr>
 		<tr><td><code>first()</code></td><td><code>Promise&lt;T | null&gt;</code></td></tr>
 		<tr><td><code>count()</code></td><td><code>Promise&lt;number&gt;</code></td></tr>
 		<tr><td><code>where(field)</code></td><td><code>SvelteWhereClause</code></td></tr>

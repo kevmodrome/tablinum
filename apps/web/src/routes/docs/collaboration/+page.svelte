@@ -4,7 +4,7 @@
 	const createInvite = `import { encodeInvite } from "tablinum";
 
 // Export an invite from an existing database
-const invite = yield* db.exportInvite();
+const invite = db.exportInvite();
 const encoded = encodeInvite(invite);
 
 // Share \`encoded\` as a URL parameter, QR code, or message`;
@@ -28,7 +28,25 @@ yield* db.removeMember(pubkey);
 
 // List all members
 const members = yield* db.getMembers();
-// [{ id, name?, picture?, about?, addedAt, removedAt? }, ...]`;
+// [{ id, name?, picture?, about?, nip05?, addedAt, addedInEpoch, removedAt?, removedInEpoch? }, ...]`;
+
+	const exportKeyExample = `// Export the current epoch key as a hex string
+const key = db.exportKey();`;
+
+	const membersCollection = `// The members property is a full collection handle
+// You can query and watch it like any other collection
+const allMembers = yield* db.members
+  .where("addedAt").above(0)
+  .and(m => !m.removedAt)
+  .get();`;
+
+	const onMembersChangedExample = `const db = yield* createTablinum({
+  schema,
+  relays: ["wss://relay.example.com"],
+  onMembersChanged: () => {
+    console.log("Members list updated");
+  },
+});`;
 
 	const profileOps = `// Get your profile
 const profile = yield* db.getProfile();
@@ -101,7 +119,9 @@ console.log(db.publicKey);`;
 	<li><code>id</code> — the member's Nostr public key</li>
 	<li><code>name</code>, <code>picture</code>, <code>about</code>, <code>nip05</code> — optional profile fields</li>
 	<li><code>addedAt</code> — when they were added</li>
+	<li><code>addedInEpoch</code> — the epoch ID active when they were added</li>
 	<li><code>removedAt</code> — when they were removed (if applicable)</li>
+	<li><code>removedInEpoch</code> — the epoch ID active when they were removed (if applicable)</li>
 </ul>
 
 <h2>Key Rotation</h2>
@@ -121,6 +141,24 @@ console.log(db.publicKey);`;
 	from before the rotation. But all new writes are encrypted with the new key, which they don't have.
 </p>
 
+<h2>Exporting Keys</h2>
+
+<p>
+	Export the current epoch key for backup or manual sharing:
+</p>
+
+<CodeBlock code={exportKeyExample} lang="typescript" />
+
+<h2>Members Collection</h2>
+
+<p>
+	The <code>db.members</code> property exposes the internal members collection as a full
+	<code>CollectionHandle</code> (or <code>Collection</code> in Svelte). You can query and watch it
+	like any other collection:
+</p>
+
+<CodeBlock code={membersCollection} lang="typescript" />
+
 <h2>Profiles</h2>
 
 <p>
@@ -128,6 +166,14 @@ console.log(db.publicKey);`;
 </p>
 
 <CodeBlock code={profileOps} lang="typescript" />
+
+<h2>Members Changed Callback</h2>
+
+<p>
+	Use <code>onMembersChanged</code> to react when the members list is updated (e.g., a new member joins or is removed):
+</p>
+
+<CodeBlock code={onMembersChangedExample} lang="typescript" />
 
 <h2>Removal Notification</h2>
 
