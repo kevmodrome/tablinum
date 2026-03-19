@@ -18,8 +18,20 @@ function make<T>(
   return { _tag: "FieldDef", kind, isOptional, isArray, ...(fields !== undefined && { fields }) };
 }
 
+type LocalInferFieldType<F> = F extends FieldDef<infer T> ? T : never;
+
+type RequiredFieldKeys<F extends Record<string, FieldDef<unknown>>> = {
+  [K in keyof F]: undefined extends LocalInferFieldType<F[K]> ? never : K;
+}[keyof F];
+
+type OptionalFieldKeys<F extends Record<string, FieldDef<unknown>>> = {
+  [K in keyof F]: undefined extends LocalInferFieldType<F[K]> ? K : never;
+}[keyof F];
+
 type InferFields<F extends Record<string, FieldDef<unknown>>> = {
-  readonly [K in keyof F]: F[K] extends FieldDef<infer T> ? T : never;
+  readonly [K in RequiredFieldKeys<F>]: F[K] extends FieldDef<infer T> ? T : never;
+} & {
+  readonly [K in OptionalFieldKeys<F>]?: F[K] extends FieldDef<infer T> ? T : never;
 };
 
 export const field = {

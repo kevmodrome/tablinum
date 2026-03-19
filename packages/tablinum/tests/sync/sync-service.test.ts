@@ -95,7 +95,7 @@ describe("sync service", () => {
 
       await Effect.runPromise(handle.startSubscription());
       expect(subscribed).toBeDefined();
-      subscribed!({ id: "gw-1", created_at: 1, tags: [] } as NostrEvent);
+      subscribed!({ id: "gw-1", created_at: 1, tags: [] } as unknown as NostrEvent);
       await new Promise((resolve) => setTimeout(resolve, 10));
 
       expect(putEventCount).toBe(0);
