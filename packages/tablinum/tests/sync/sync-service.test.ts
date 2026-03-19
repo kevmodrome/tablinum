@@ -99,7 +99,9 @@ describe("sync service", () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
 
       expect(putEventCount).toBe(0);
-      expect(seenGiftWraps).toEqual([{ id: "gw-1", createdAt: 1 }]);
+      expect(seenGiftWraps).toEqual([
+        { id: "gw-1", event: { id: "gw-1", created_at: 1, tags: [] }, createdAt: 1 },
+      ]);
     } finally {
       await Effect.runPromise(Scope.close(scope, Exit.void));
     }

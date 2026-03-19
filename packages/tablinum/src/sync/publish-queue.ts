@@ -65,7 +65,6 @@ export function createPublishQueue(
             const result = yield* Effect.result(relay.publish(gw.event, relayUrls));
             if (result._tag === "Success") {
               succeeded.add(eventId);
-              yield* storage.stripGiftWrapBlob(eventId);
               consecutiveFailures = 0;
             } else {
               consecutiveFailures++;

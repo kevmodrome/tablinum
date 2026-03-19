@@ -167,7 +167,7 @@ export const TablinumLive = Layer.effect(
         }
 
         const gw = wrapResult.success;
-        yield* storage.putGiftWrap({ id: gw.id, createdAt: gw.created_at });
+        yield* storage.putGiftWrap({ id: gw.id, event: gw, createdAt: gw.created_at });
 
         yield* Effect.forkIn(
           Effect.gen(function* () {
@@ -328,6 +328,7 @@ export const TablinumLive = Layer.effect(
           Effect.gen(function* () {
             if (yield* Ref.get(closedRef)) return;
             yield* Ref.set(closedRef, true);
+            syncHandle.stopHealing();
             yield* Scope.close(scope, Exit.void);
           }),
         ),
@@ -340,7 +341,16 @@ export const TablinumLive = Layer.effect(
           ),
         ),
 
-      sync: () => ensureSyncOpen(syncHandle.sync()),
+      sync: () =>
+        ensureSyncOpen(
+          syncHandle.sync().pipe(
+            Effect.tap(() =>
+              Effect.sync(() => {
+                syncHandle.startHealing();
+              }),
+            ),
+          ),
+        ),
       getSyncStatus: () => syncStatus.get(),
       subscribeSyncStatus: (callback) => syncStatus.subscribe(callback),
       pendingCount: () => publishQueue.size(),

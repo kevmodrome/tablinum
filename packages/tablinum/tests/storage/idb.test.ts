@@ -135,12 +135,22 @@ describe("IDBStorage", () => {
       const storage = yield* openIDBStorage(DatabaseName("test-giftwraps"), schema);
       yield* storage.putGiftWrap({
         id: "gw1",
-        event: { kind: 1059 } as NostrEvent,
+        event: {
+          id: "gw1",
+          kind: 1059,
+          pubkey: "a".repeat(64),
+          sig: "b".repeat(128),
+          created_at: 100,
+          content: btoa("hello"),
+          tags: [["p", "c".repeat(64)]],
+        } as NostrEvent,
         createdAt: 100,
       });
       const gw = yield* storage.getGiftWrap("gw1");
       expect(gw).toBeDefined();
       expect(gw!.event!.kind).toBe(1059);
+      expect(gw!.event!.pubkey).toBe("a".repeat(64));
+      expect(gw!.event!.content).toBe(btoa("hello"));
     }),
   );
 
