@@ -49,6 +49,21 @@ describe("schema validation", () => {
     }),
   );
 
+  it.effect("allows omitting optional fields entirely", () =>
+    Effect.gen(function* () {
+      const def = collection("notes", {
+        text: field.string(),
+        tag: field.optional(field.string()),
+      });
+      const validate = buildValidator("notes", def);
+      const result = yield* validate({
+        id: "abc",
+        text: "hello",
+      });
+      expect(result).toEqual({ id: "abc", text: "hello" });
+    }),
+  );
+
   it.effect("validates array fields", () =>
     Effect.gen(function* () {
       const def = collection("lists", {
