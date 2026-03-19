@@ -3,11 +3,25 @@ import type { FieldDef } from "./field.ts";
 
 export type InferFieldType<F> = F extends FieldDef<infer T> ? T : never;
 
+type RequiredKeys<F> = {
+  [K in keyof F]: undefined extends InferFieldType<F[K]> ? never : K;
+}[keyof F];
+
+type OptionalKeys<F> = {
+  [K in keyof F]: undefined extends InferFieldType<F[K]> ? K : never;
+}[keyof F];
+
+type Prettify<T> = { [K in keyof T]: T[K] } & {};
+
 export type InferRecord<C> =
   C extends CollectionDef<infer F>
-    ? { readonly id: string } & {
-        readonly [K in keyof F]: InferFieldType<F[K]>;
-      }
+    ? Prettify<
+        { readonly id: string } & {
+          readonly [K in RequiredKeys<F>]: InferFieldType<F[K]>;
+        } & {
+          readonly [K in OptionalKeys<F>]?: InferFieldType<F[K]>;
+        }
+      >
     : never;
 
 export type SchemaConfig = Record<string, CollectionDef<CollectionFields>>;
