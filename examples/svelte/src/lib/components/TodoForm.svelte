@@ -4,17 +4,24 @@
 	const todos = getDb().collection("todos");
 
 	let title = $state("");
+	let priority = $state(1);
 
 	async function addTodo(e: SubmitEvent) {
 		e.preventDefault();
 		if (!title.trim()) return;
-		await todos.add({ title: title.trim(), done: false, priority: 1 });
+		await todos.add({ title: title.trim(), done: false, priority });
 		title = "";
+		priority = 1;
 	}
 </script>
 
 <form onsubmit={addTodo}>
 	<input bind:value={title} placeholder="Add a todo..." />
+	<select bind:value={priority}>
+		<option value={1}>Low</option>
+		<option value={2}>Medium</option>
+		<option value={3}>High</option>
+	</select>
 	<button type="submit">Add</button>
 </form>
 

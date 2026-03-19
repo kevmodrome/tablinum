@@ -1,4 +1,4 @@
-import { Tablinum, field, collection, decodeInvite, type InferRecord } from "tablinum/svelte";
+import { Tablinum, field, collection, decodeInvite, encodeInvite, type InferRecord } from "tablinum/svelte";
 import { dbUiState, type RemovedInfo } from "./db-state.svelte";
 
 const todosCollection = collection(
@@ -8,7 +8,7 @@ const todosCollection = collection(
     done: field.boolean(),
     priority: field.number(),
   },
-  { indices: ["done", "priority"] },
+  { indices: ["done", "priority"], eventRetention: 5 },
 );
 
 const contactsCollection = collection(
@@ -25,10 +25,22 @@ const contactsCollection = collection(
   { indices: ["name"] },
 );
 
+const itemsCollection = collection(
+  "items",
+  {
+    name: field.string(),
+    quantity: field.number(),
+    addedBy: field.string(),
+    checked: field.boolean(),
+  },
+  { indices: ["checked", "addedBy"] },
+);
+
 export type TodoRecord = InferRecord<typeof todosCollection>;
 export type ContactRecord = InferRecord<typeof contactsCollection>;
+export type ItemRecord = InferRecord<typeof itemsCollection>;
 
-const schema = { todos: todosCollection, contacts: contactsCollection };
+const schema = { todos: todosCollection, contacts: contactsCollection, items: itemsCollection };
 export type AppSchema = typeof schema;
 
 function getInviteFromUrl(): ReturnType<typeof decodeInvite> | undefined {
@@ -71,4 +83,11 @@ export function initDb(opts?: { onRemoved?: (info: RemovedInfo) => void }) {
 export function getDb(): Tablinum<AppSchema> {
   if (!_db) throw new Error("Database not initialized — did hooks.client.ts run?");
   return _db;
+}
+
+export function getInviteLink(): string {
+  const db = getDb();
+  const invite = db.exportInvite();
+  const encoded = encodeInvite(invite);
+  return `${window.location.origin}/shopping?invite=${encodeURIComponent(encoded)}`;
 }

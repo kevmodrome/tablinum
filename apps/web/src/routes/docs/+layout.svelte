@@ -12,6 +12,10 @@
 		{ title: "Collaboration", href: "/docs/collaboration" },
 		{ title: "Svelte 5 Integration", href: "/docs/svelte-bindings" },
 		{ title: "Logging & Debugging", href: "/docs/logging" },
+		{ title: "Examples", href: "/docs/examples" },
+		{ title: "Todo App", href: "/docs/examples/todo-app", indent: true },
+		{ title: "Shared List", href: "/docs/examples/shared-list", indent: true },
+		{ title: "Effect Notes", href: "/docs/examples/effect-notes", indent: true },
 	];
 </script>
 
@@ -36,7 +40,7 @@
 					<a
 						href={section.href}
 						onclick={() => (sidebarOpen = false)}
-						class="nav-link group flex items-center gap-2.5 py-2 text-sm transition-all duration-200"
+						class="nav-link group flex items-center gap-2.5 py-2 text-sm transition-all duration-200 {section.indent ? 'pl-4' : ''}"
 						class:active
 					>
 						<span class="indicator h-px w-0 bg-accent transition-all duration-300 group-hover:w-4"

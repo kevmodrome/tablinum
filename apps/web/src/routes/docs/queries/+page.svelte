@@ -19,7 +19,17 @@ yield* todos.delete(id);
 const total = yield* todos.count();
 
 // Get the first record
-const first = yield* todos.first();`;
+const first = yield* todos.first();
+
+// Undo the last change to a record
+yield* todos.undo(id);`;
+
+	const undoExample = `// Undo reverts the last change to a record
+yield* todos.update(id, { done: true });
+yield* todos.undo(id);  // reverts back to done: false
+
+// How far back you can undo depends on eventRetention
+// (set per-collection, defaults to 1)`;
 
 	const whereExample = `// Exact match
 const pending = yield* todos.where("done").equals(false).get();
@@ -95,6 +105,16 @@ yield* Effect.fork(
 
 <CodeBlock code={crudExample} lang="typescript" />
 
+<h2>Undo</h2>
+
+<p>
+	Each collection keeps a history of events per record (controlled by <code>eventRetention</code>
+	in your <a href="/docs/collections">collection options</a>). Call <code>undo(id)</code> to revert
+	the last change:
+</p>
+
+<CodeBlock code={undoExample} lang="typescript" />
+
 <h2>Where Clauses</h2>
 
 <p>
@@ -117,7 +137,7 @@ yield* Effect.fork(
 		<tr><td><code>.aboveOrEqual(n)</code></td><td>Greater than or equal</td></tr>
 		<tr><td><code>.below(n)</code></td><td>Less than</td></tr>
 		<tr><td><code>.belowOrEqual(n)</code></td><td>Less than or equal</td></tr>
-		<tr><td><code>.between(lower, upper)</code></td><td>Inclusive range</td></tr>
+		<tr><td><code>.between(lower, upper, opts?)</code></td><td>Range query. Inclusive by default. Pass <code>&#123; includeLower?, includeUpper? &#125;</code> to control boundaries</td></tr>
 		<tr><td><code>.startsWith(prefix)</code></td><td>String prefix match</td></tr>
 		<tr><td><code>.anyOf(values)</code></td><td>Value in set</td></tr>
 		<tr><td><code>.noneOf(values)</code></td><td>Value not in set</td></tr>

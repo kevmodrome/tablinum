@@ -20,8 +20,28 @@ if (db.syncStatus === "syncing") {
   console.log("Syncing...");
 }
 
-// Pending unsynced changes
+// Effect API — pending unsynced changes
+const pending = yield* db.pendingCount();
+console.log(pending);
+
+// Svelte API — reactive property
 console.log(db.pendingCount);`;
+
+	const subscriptionExample = `// Effect API — subscribe to status changes
+const unsubSync = db.subscribeSyncStatus((status) => {
+  console.log("Sync status:", status); // "idle" | "syncing"
+});
+
+const unsubPending = db.subscribePendingCount((count) => {
+  console.log("Pending changes:", count);
+});
+
+const unsubRelay = db.subscribeRelayStatus((status) => {
+  console.log("Connected relays:", status.connectedUrls);
+});
+
+// Call the returned function to unsubscribe
+unsubSync();`;
 
 	const errorHandling = `const db = yield* createTablinum({
   schema,
@@ -30,6 +50,23 @@ console.log(db.pendingCount);`;
     console.warn("Sync error:", error.message);
   },
 });`;
+
+	const catchTagExample = `import { Effect } from "effect";
+
+const result = yield* todos.add({ title: "Test", done: false }).pipe(
+  Effect.catchTag("StorageError", (e) =>
+    Effect.log(\`Storage failed: \${e.message}\`)
+  ),
+  Effect.catchTag("ValidationError", (e) =>
+    Effect.log(\`Invalid data: \${e.message} (field: \${e.field})\`)
+  ),
+);`;
+
+	const rebuildExample = `// Reconstruct local state from event history
+yield* db.rebuild();
+
+// Svelte API
+await db.rebuild();`;
 </script>
 
 <svelte:head>
@@ -114,6 +151,16 @@ console.log(db.pendingCount);`;
 
 <CodeBlock code={syncStatus} lang="typescript" />
 
+<h2>Status Subscriptions (Effect API)</h2>
+
+<p>
+	In the Effect API, subscribe to status changes with callbacks. Each returns an unsubscribe function.
+	(In Svelte, these are exposed as reactive <code>$state</code> properties instead — see
+	<a href="/docs/svelte-bindings">Svelte 5 Integration</a>.)
+</p>
+
+<CodeBlock code={subscriptionExample} lang="typescript" />
+
 <h2>Conflict Resolution</h2>
 
 <p>
@@ -136,8 +183,39 @@ console.log(db.pendingCount);`;
 
 <CodeBlock code={errorHandling} lang="typescript" />
 
+<h2>Error Types</h2>
+
 <p>
-	Tablinum uses distinct typed errors: <code>RelayError</code> for connection issues,
-	<code>SyncError</code> for sync failures, and <code>CryptoError</code> for encryption problems.
-	These are separate from local <code>StorageError</code> and <code>ValidationError</code>.
+	All errors extend <code>Data.TaggedError</code> from Effect and can be pattern-matched with
+	<code>Effect.catchTag</code>:
 </p>
+
+<table>
+	<thead>
+		<tr>
+			<th>Error</th>
+			<th>Fields</th>
+			<th>When</th>
+		</tr>
+	</thead>
+	<tbody>
+		<tr><td><code>ValidationError</code></td><td><code>message, field?</code></td><td>Invalid data or configuration</td></tr>
+		<tr><td><code>StorageError</code></td><td><code>message, cause?</code></td><td>IndexedDB read/write failure</td></tr>
+		<tr><td><code>CryptoError</code></td><td><code>message, cause?</code></td><td>Encryption or decryption failure</td></tr>
+		<tr><td><code>RelayError</code></td><td><code>message, url?, cause?</code></td><td>Relay connection or protocol error</td></tr>
+		<tr><td><code>SyncError</code></td><td><code>message, phase?, cause?</code></td><td>Sync process failure</td></tr>
+		<tr><td><code>NotFoundError</code></td><td><code>collection, id</code></td><td>Record not found for get/update/delete</td></tr>
+		<tr><td><code>ClosedError</code></td><td><code>message</code></td><td>Operation attempted on a closed database</td></tr>
+	</tbody>
+</table>
+
+<CodeBlock code={catchTagExample} lang="typescript" />
+
+<h2>Rebuilding</h2>
+
+<p>
+	If local state becomes corrupted, <code>rebuild()</code> reconstructs the database from its stored
+	event history:
+</p>
+
+<CodeBlock code={rebuildExample} lang="typescript" />
