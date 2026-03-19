@@ -39,8 +39,8 @@ export function reconcileWithRelay(
     const allNeedIds: string[] = [];
     const subId = `neg-${Date.now()}`;
 
-    const initialMsg: string = yield* Effect.try({
-      try: () => neg.initiate() as string,
+    const initialMsg: string = yield* Effect.tryPromise({
+      try: () => neg.initiate() as Promise<string>,
       catch: (e) =>
         new SyncError({
           message: `Negentropy initiate failed: ${e instanceof Error ? e.message : String(e)}`,
@@ -56,8 +56,8 @@ export function reconcileWithRelay(
 
       if (response.msgHex === null) break;
 
-      const reconcileResult: [string | null, string[], string[]] = yield* Effect.try({
-        try: () => neg.reconcile(response.msgHex) as [string | null, string[], string[]],
+      const reconcileResult: [string | null, string[], string[]] = yield* Effect.tryPromise({
+        try: () => neg.reconcile(response.msgHex) as Promise<[string | null, string[], string[]]>,
         catch: (e) =>
           new SyncError({
             message: `Negentropy reconcile failed: ${e instanceof Error ? e.message : String(e)}`,

@@ -5,7 +5,7 @@ import { CryptoError } from "../errors.ts";
 import type { EpochStore } from "../db/epoch.ts";
 import { getCurrentPublicKey, getDecryptionKey } from "../db/epoch.ts";
 
-type Rumor = ReturnType<typeof unwrapEvent>;
+export type Rumor = ReturnType<typeof unwrapEvent>;
 
 export interface GiftWrapHandle {
   readonly wrap: (rumor: Partial<UnsignedEvent>) => Effect.Effect<NostrEvent, CryptoError>;

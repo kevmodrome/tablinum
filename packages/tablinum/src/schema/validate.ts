@@ -57,7 +57,7 @@ function buildStructSchema<F extends CollectionFields>(
 
   for (const [name, fieldDef] of Object.entries(def.fields)) {
     const fieldSchema = fieldDefToSchema(fieldDef);
-    schemaFields[name] = options.allOptional
+    schemaFields[name] = (options.allOptional || fieldDef.isOptional)
       ? (Schema.optionalKey(fieldSchema) as DecodableSchema)
       : fieldSchema;
   }
