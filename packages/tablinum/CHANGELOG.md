@@ -1,5 +1,11 @@
 # tablinum
 
+## 0.6.2
+
+### Patch Changes
+
+- afd8497: Fix optional field type issues
+
 ## 0.6.1
 
 ### Patch Changes
