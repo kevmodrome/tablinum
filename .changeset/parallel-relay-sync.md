@@ -8,3 +8,4 @@ Parallelize relay sync and fix Negentropy async bug
 - Fix `reconcileWithRelay` using `Effect.try` instead of `Effect.tryPromise` for async Negentropy methods, which caused reconciliation to silently return empty results
 - Deduplicate gift wraps across relays before processing
 - Sort events by `rumor.created_at` (real timestamp) instead of randomized gift wrap `created_at`
+- Fix `field.optional()` to allow omitting keys entirely, not just setting them to `undefined`
