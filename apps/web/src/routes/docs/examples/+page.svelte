@@ -5,8 +5,11 @@
 <h1>Examples</h1>
 
 <p>
-	Complete, copy-pasteable examples showing how to build apps with Tablinum. Each example is a
-	self-contained Svelte 5 app with full source code.
+	Complete, copy-pasteable examples showing how to build apps with Tablinum. The Svelte examples
+	use SvelteKit with the <code>init</code> client hook for database setup. The Effect example
+	runs as a standalone script. All Svelte examples have a
+	<a href="https://github.com/kevmodrome/localstr/tree/main/examples/svelte" target="_blank" rel="noopener noreferrer">
+		full working implementation on GitHub</a>.
 </p>
 
 <div class="grid gap-6 sm:grid-cols-2" style="margin-top: 2rem;">
@@ -30,6 +33,17 @@
 		<span class="tag">Collaboration</span>
 		<span class="tag">Invites</span>
 		<span class="tag">Profiles</span>
+	</a>
+
+	<a href="/docs/examples/effect-notes" class="example-card">
+		<h3>Effect Notes App</h3>
+		<p>
+			Notes app using the Effect API directly — no Svelte required. Typed error handling,
+			streaming queries with <code>watch()</code>, and explicit lifecycle management.
+		</p>
+		<span class="tag">Effect</span>
+		<span class="tag">Streaming</span>
+		<span class="tag">Error handling</span>
 	</a>
 </div>
 

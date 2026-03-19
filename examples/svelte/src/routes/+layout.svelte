@@ -13,6 +13,7 @@
 	<a href="/" class:active={$page.url.pathname === "/"}>Home</a>
 	<a href="/todos" class:active={$page.url.pathname === "/todos"}>Todos</a>
 	<a href="/contacts" class:active={$page.url.pathname === "/contacts"}>Contacts</a>
+	<a href="/shopping" class:active={$page.url.pathname === "/shopping"}>Shopping</a>
 </nav>
 
 {@render children()}

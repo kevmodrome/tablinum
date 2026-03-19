@@ -6,11 +6,11 @@
 	const db = getDb();
 	const todos = db.collection("todos");
 
-	let allTodos = $derived(db.status === "ready" ? await todos.get() : []);
+	let total = $derived(await todos.count());
 	let incomplete = $derived(
-		db.status === "ready" ? await todos.where("done").equals(false).get() : [],
+		await todos.where("done").equals(false).sortBy("priority").reverse().get(),
 	);
-	let done = $derived(db.status === "ready" ? await todos.where("done").equals(true).get() : []);
+	let done = $derived(await todos.where("done").equals(true).get());
 </script>
 
 <svelte:boundary>
@@ -24,14 +24,12 @@
 	<main>
 		<h1>Todos</h1>
 
-		{#if db.status === "ready"}
-			<TodoForm />
+		<TodoForm />
 
-			<p class="count">{allTodos.length} total</p>
+		<p class="count">{total} total</p>
 
-			<TodoList items={incomplete} label="Todo" />
-			<TodoList items={done} label="Done" isDone />
-		{/if}
+		<TodoList items={incomplete} label="Todo" />
+		<TodoList items={done} label="Done" isDone />
 	</main>
 </svelte:boundary>
 

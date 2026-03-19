@@ -20,6 +20,10 @@
 	async function remove(id: string) {
 		await todos.delete(id);
 	}
+
+	async function undo(id: string) {
+		await todos.undo(id);
+	}
 </script>
 
 <h2>{label} ({items.length})</h2>
@@ -33,7 +37,11 @@
 					onchange={() => toggle(todo.id, todo.done)}
 				/>
 				<span>{todo.title}</span>
+				{#if todo.priority > 1}
+					<span class="priority priority-{todo.priority}">{todo.priority === 3 ? 'High' : 'Med'}</span>
+				{/if}
 			</label>
+			<button class="undo" onclick={() => undo(todo.id)} title="Undo last change">&#x21A9;</button>
 			<button class="delete" onclick={() => remove(todo.id)}>&#x2715;</button>
 		</li>
 	{/each}
@@ -72,6 +80,24 @@
 		text-decoration: line-through;
 	}
 
+	.priority {
+		font-size: 0.75rem;
+		padding: 0.1rem 0.4rem;
+		border-radius: 3px;
+		font-weight: 600;
+	}
+
+	.priority-2 {
+		background: #fff3cd;
+		color: #856404;
+	}
+
+	.priority-3 {
+		background: #f8d7da;
+		color: #721c24;
+	}
+
+	.undo,
 	.delete {
 		padding: 0.25rem 0.5rem;
 		font-size: 0.875rem;
@@ -81,6 +107,7 @@
 		background: #f5f5f5;
 	}
 
+	.undo:hover,
 	.delete:hover {
 		background: #e0e0e0;
 	}

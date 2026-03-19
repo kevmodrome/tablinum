@@ -1,102 +1,94 @@
 <script lang="ts">
 	import CodeBlock from "$lib/components/CodeBlock.svelte";
 
-	const schema = `// src/lib/schema.ts
-import { collection, field } from "tablinum/svelte";
+	const dbModule = `// src/lib/db.ts
+import {
+  Tablinum, field, collection,
+  decodeInvite, encodeInvite,
+  type InferRecord,
+} from "tablinum/svelte";
 
-export const schema = {
-  items: collection("items", {
+const itemsCollection = collection(
+  "items",
+  {
     name: field.string(),
     quantity: field.number(),
     addedBy: field.string(),    // public key of who added it
     checked: field.boolean(),
-  }, {
-    indices: ["checked", "addedBy"],
-  }),
-};`;
-
-	const dbCreate = `// src/lib/db.ts — creating a new shared list
-import { Tablinum, encodeInvite } from "tablinum/svelte";
-import { schema } from "./schema";
-
-export const db = new Tablinum({
-  schema,
-  relays: ["wss://relay.example.com"],
-  onSyncError: (error) => console.warn("Sync:", error.message),
-  onRemoved: () => {
-    alert("You have been removed from this list.");
   },
-  onMembersChanged: () => {
-    // Trigger a re-fetch of the members list if needed
-    console.log("Members changed");
-  },
-});
+  { indices: ["checked", "addedBy"] },
+);
 
-export const items = db.collection("items");
+export type ItemRecord = InferRecord<typeof itemsCollection>;
 
-// Generate a shareable invite link
-export function getInviteLink(): string {
-  const invite = db.exportInvite();
-  const encoded = encodeInvite(invite);
-  return \`\${window.location.origin}/join?invite=\${encoded}\`;
-}`;
+const schema = { items: itemsCollection };
+type AppSchema = typeof schema;
 
-	const dbJoin = `// src/lib/db.ts — joining an existing list
-import { Tablinum, decodeInvite } from "tablinum/svelte";
-import { schema } from "./schema";
+// --- Invite helpers ---
 
-export function joinList(encodedInvite: string) {
-  const invite = decodeInvite(encodedInvite);
+function getInviteFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const invite = params.get("invite");
+  if (!invite) return undefined;
+  try {
+    return decodeInvite(invite);
+  } catch {
+    console.error("[tablinum] Invalid invite in URL");
+    return undefined;
+  }
+}
 
-  const db = new Tablinum({
+// --- Singleton database ---
+
+let _db: Tablinum<AppSchema> | null = null;
+
+export function initDb() {
+  if (_db && _db.status !== "closed" && _db.status !== "error") return _db;
+
+  const invite = getInviteFromUrl();
+
+  _db = new Tablinum({
     schema,
-    relays: invite.relays,
-    epochKeys: invite.epochKeys,
-    dbName: invite.dbName,
-    onRemoved: () => {
-      alert("You have been removed from this list.");
+    relays: invite?.relays ?? ["wss://relay.example.com"],
+    dbName: invite?.dbName,
+    epochKeys: invite?.epochKeys,
+    onSyncError: (err) => {
+      console.error("[tablinum:sync]", err.message);
+    },
+    onRemoved: (info) => {
+      console.warn("Removed from list:", info);
     },
   });
 
-  return {
-    db,
-    items: db.collection("items"),
-  };
+  return _db;
+}
+
+export function getDb() {
+  if (!_db) throw new Error("Database not initialized");
+  return _db;
+}
+
+export function getInviteLink(): string {
+  const db = getDb();
+  const invite = db.exportInvite();
+  const encoded = encodeInvite(invite);
+  return \`\${window.location.origin}/shopping?invite=\${encodeURIComponent(encoded)}\`;
 }`;
 
-	const joinPage = `<!-- src/routes/join/+page.svelte -->
+	const hooksClient = `// src/hooks.client.ts
+import { initDb, getDb } from "$lib/db";
+
+export async function init() {
+  initDb();
+  await getDb().ready.catch(() => undefined);
+}`;
+
+	const shoppingForm = `<!-- src/lib/components/ShoppingForm.svelte -->
 <script lang="ts">
-  import { page } from "$app/stores";
-  import { joinList } from "$lib/db";
+  import { getDb } from "$lib/db";
 
-  const encoded = $page.url.searchParams.get("invite");
-  if (!encoded) throw new Error("Missing invite parameter");
-
-  const { db, items } = joinList(encoded);
-
-  // Set your profile so others know who you are
-  $effect(() => {
-    if (db.status === "ready") {
-      db.setProfile({ name: "Alice" });
-      db.sync();
-    }
-  });
-<\/script>
-
-<svelte:boundary>
-  {#snippet pending()}
-    <p>Joining shared list...</p>
-  {/snippet}
-
-  {#if db.status === "ready"}
-    <p>Joined! You are: {db.publicKey.slice(0, 8)}...</p>
-  {:else if db.status === "error"}
-    <p>Failed to join: {db.error?.message}</p>
-  {/if}
-</svelte:boundary>`;
-
-	const addItem = `<script lang="ts">
-  import { db, items } from "$lib/db";
+  const db = getDb();
+  const items = db.collection("items");
 
   let name = $state("");
   let quantity = $state(1);
@@ -116,49 +108,28 @@ export function joinList(encodedInvite: string) {
 <\/script>
 
 <form onsubmit={addItem}>
-  <input bind:value={name} placeholder="Item name..." />
-  <input type="number" bind:value={quantity} min="1" max="99" />
+  <input bind:value={name} placeholder="Add an item..." />
+  <input type="number" bind:value={quantity} min={1} max={99} />
   <button type="submit">Add</button>
 </form>`;
 
-	const shoppingList = `<script lang="ts">
-  import { db, items } from "$lib/db";
+	const shoppingList = `<!-- src/lib/components/ShoppingList.svelte -->
+<script lang="ts">
+  import type { ItemRecord } from "$lib/db";
+  import type { Collection } from "tablinum/svelte";
 
-  // Unchecked items
-  let needed = $derived(
-    db.status === "ready"
-      ? await items.where("checked").equals(false).get()
-      : [],
-  );
+  let {
+    items,
+    records,
+    checked,
+  }: {
+    items: Collection<any>;
+    records: ReadonlyArray<ItemRecord>;
+    checked: boolean;
+  } = $props();
 
-  // Checked items
-  let done = $derived(
-    db.status === "ready"
-      ? await items.where("checked").equals(true).get()
-      : [],
-  );
-
-  // Map of public key → profile name (populated below)
-  let memberNames = $state<Record<string, string>>({});
-
-  // Fetch member profiles to display names instead of public keys
-  $effect(() => {
-    if (db.status !== "ready") return;
-    db.getMembers().then((members) => {
-      const names: Record<string, string> = {};
-      for (const m of members) {
-        names[m.id] = m.name ?? m.id.slice(0, 8) + "...";
-      }
-      memberNames = names;
-    });
-  });
-
-  function displayName(pubkey: string): string {
-    return memberNames[pubkey] ?? pubkey.slice(0, 8) + "...";
-  }
-
-  async function toggleChecked(id: string, checked: boolean) {
-    await items.update(id, { checked: !checked });
+  async function toggleChecked(id: string, current: boolean) {
+    await items.update(id, { checked: !current });
   }
 
   async function remove(id: string) {
@@ -166,113 +137,142 @@ export function joinList(encodedInvite: string) {
   }
 <\/script>
 
-<h3>Need ({needed.length})</h3>
 <ul>
-  {#each needed as item (item.id)}
-    <li>
-      <input type="checkbox"
-        onchange={() => toggleChecked(item.id, item.checked)} />
-      <strong>{item.name}</strong> x{item.quantity}
-      <small>added by {displayName(item.addedBy)}</small>
-      <button onclick={() => remove(item.id)}>x</button>
+  {#each records as item (item.id)}
+    <li class:checked>
+      <label>
+        <input
+          type="checkbox"
+          {checked}
+          onchange={() => toggleChecked(item.id, item.checked)}
+        />
+        <span>{item.name}</span>
+        {#if item.quantity > 1}
+          <span class="qty">x{item.quantity}</span>
+        {/if}
+      </label>
+      <button onclick={() => remove(item.id)}>✕</button>
     </li>
   {/each}
-</ul>
+</ul>`;
 
-{#if done.length > 0}
-  <h3>Got it ({done.length})</h3>
-  <ul>
-    {#each done as item (item.id)}
-      <li>
-        <input type="checkbox" checked
-          onchange={() => toggleChecked(item.id, item.checked)} />
-        <s>{item.name}</s>
-      </li>
-    {/each}
-  </ul>
-{/if}`;
+	const shoppingMembers = `<!-- src/lib/components/ShoppingMembers.svelte -->
+<script lang="ts">
+  import { getDb } from "$lib/db";
 
-	const memberPanel = `<script lang="ts">
-  import { db, getInviteLink } from "$lib/db";
+  const db = getDb();
+  const membersCollection = db.members;
 
-  let members = $derived(
-    db.status === "ready" ? await db.getMembers() : []
-  );
+  let members = $derived(await membersCollection.get());
 
-  let inviteLink = $state("");
+  let name = $state("");
+  let profileSaved = $state(false);
 
-  function copyInvite() {
-    inviteLink = getInviteLink();
-    navigator.clipboard.writeText(inviteLink);
+  async function saveProfile() {
+    if (!name.trim()) return;
+    await db.setProfile({ name: name.trim() });
+    profileSaved = true;
   }
 
   async function removeMember(pubkey: string) {
-    if (!confirm("Remove this member? They will lose access to new data.")) return;
     await db.removeMember(pubkey);
-    await db.sync();
   }
 <\/script>
 
-<h3>Members ({members.length})</h3>
-<ul>
-  {#each members as member (member.id)}
-    <li>
-      <strong>{member.name ?? "Anonymous"}</strong>
-      <code>{member.id.slice(0, 12)}...</code>
-      {#if member.removedAt}
-        <span class="removed">removed</span>
-      {:else if member.id !== db.publicKey}
-        <button onclick={() => removeMember(member.id)}>Remove</button>
-      {:else}
-        <span>(you)</span>
-      {/if}
-    </li>
-  {/each}
-</ul>
+<div class="members-panel">
+  <h3>Members ({members.length})</h3>
 
-<button onclick={copyInvite}>Copy invite link</button>
-{#if inviteLink}
-  <small>Copied!</small>
-{/if}`;
+  <ul>
+    {#each members as member (member.id)}
+      <li>
+        <span>{member.name ?? member.id.slice(0, 12) + "..."}</span>
+        {#if member.id === db.publicKey}
+          <span>(you)</span>
+        {:else if !member.removedAt}
+          <button onclick={() => removeMember(member.id)}>Remove</button>
+        {:else}
+          <span>removed</span>
+        {/if}
+      </li>
+    {/each}
+  </ul>
 
-	const profileSetup = `<script lang="ts">
-  import { db } from "$lib/db";
+  <div class="profile">
+    <h4>Your Profile</h4>
+    <p>Key: {db.publicKey.slice(0, 16)}...</p>
+    <form onsubmit={(e) => { e.preventDefault(); saveProfile(); }}>
+      <input bind:value={name} placeholder="Display name..." />
+      <button type="submit">Save</button>
+    </form>
+    {#if profileSaved}
+      <p>Saved!</p>
+    {/if}
+  </div>
+</div>`;
 
-  let name = $state("");
-  let saving = $state(false);
+	const shoppingPage = `<!-- src/routes/shopping/+page.svelte -->
+<script lang="ts">
+  import { getDb, getInviteLink } from "$lib/db";
+  import ShoppingForm from "$lib/components/ShoppingForm.svelte";
+  import ShoppingList from "$lib/components/ShoppingList.svelte";
+  import ShoppingMembers from "$lib/components/ShoppingMembers.svelte";
 
-  async function saveProfile(e: SubmitEvent) {
-    e.preventDefault();
-    if (!name.trim()) return;
-    saving = true;
-    await db.setProfile({ name: name.trim() });
-    await db.sync();
-    saving = false;
+  const db = getDb();
+  const items = db.collection("items");
+
+  let needed = $derived(
+    await items.where("checked").equals(false).get(),
+  );
+  let done = $derived(
+    await items.where("checked").equals(true).get(),
+  );
+
+  let showMembers = $state(false);
+
+  async function copyInvite() {
+    const link = getInviteLink();
+    await navigator.clipboard.writeText(link);
   }
 <\/script>
 
-<form onsubmit={saveProfile}>
-  <input bind:value={name} placeholder="Your display name..." />
-  <button type="submit" disabled={saving}>
-    {saving ? "Saving..." : "Set name"}
-  </button>
-</form>
+<svelte:boundary>
+  {#snippet pending()}
+    <p>Loading...</p>
+  {/snippet}
 
-<p>Your public key: <code>{db.publicKey.slice(0, 16)}...</code></p>`;
+  <h1>Shopping List</h1>
 
-	const autoSync = `// Auto-sync every 30 seconds when the tab is visible
-$effect(() => {
-  if (db.status !== "ready") return;
+  <div class="toolbar">
+    <button onclick={copyInvite}>Copy Invite Link</button>
+    <button onclick={() => showMembers = !showMembers}>
+      {showMembers ? "Hide" : "Show"} Members
+    </button>
+    <button
+      onclick={() => db.sync()}
+      disabled={db.syncStatus === "syncing"}
+    >
+      {db.syncStatus === "syncing" ? "Syncing..." : "Sync"}
+    </button>
+  </div>
 
-  const interval = setInterval(() => {
-    if (!document.hidden) db.sync();
-  }, 30_000);
+  {#if showMembers}
+    <ShoppingMembers />
+  {/if}
 
-  // Sync once immediately on load
-  db.sync();
+  <ShoppingForm />
 
-  return () => clearInterval(interval);
-});`;
+  <h2>Need ({needed.length})</h2>
+  <ShoppingList {items} records={needed} checked={false} />
+
+  {#if done.length > 0}
+    <h2>Got ({done.length})</h2>
+    <ShoppingList {items} records={done} checked={true} />
+  {/if}
+
+  {#if db.pendingCount > 0}
+    <p>{db.pendingCount} unsynced changes</p>
+  {/if}
+</svelte:boundary>`;
 </script>
 
 <svelte:head>
@@ -282,103 +282,124 @@ $effect(() => {
 <h1>Example: Shared Shopping List</h1>
 
 <p>
-	A collaborative shopping list that multiple people can edit in real time. Share access with invite
-	links, see who added each item, and revoke access with automatic key rotation.
+	A collaborative shopping list that multiple people can edit. Share access with invite
+	links, manage members, and sync manually. When a member is removed, Tablinum automatically
+	rotates the epoch key — the removed person keeps their old key but cannot decrypt anything new.
 </p>
 
 <p>
-	This example covers: collaboration, invite links, joining a shared database, member management,
-	profiles, key rotation, and auto-sync.
+	This example covers: collaboration, invite links, auto-joining via URL, member management,
+	profiles, key rotation, and manual sync.
 </p>
 
-<h2>1. Define the Schema</h2>
+<blockquote>
+	View the full working source on <a
+		href="https://github.com/kevmodrome/localstr/tree/main/examples/svelte"
+		target="_blank"
+		rel="noopener noreferrer">GitHub</a
+	>.
+</blockquote>
+
+<h2>1. Database Module</h2>
 
 <p>
-	Each item tracks who added it via their public key. Index <code>checked</code> and
-	<code>addedBy</code> for fast filtered queries.
+	The database module handles both creating a new list and joining an existing one.
+	When the page loads with an <code>?invite=</code> query parameter, the invite is
+	automatically decoded and its <code>relays</code>, <code>epochKeys</code>, and
+	<code>dbName</code> are passed to the <code>Tablinum</code> constructor. No separate
+	join page is needed.
 </p>
 
-<CodeBlock code={schema} lang="typescript" title="src/lib/schema.ts" />
-
-<h2>2. Create a New List</h2>
-
 <p>
-	The list creator initializes the database and generates invite links. The
-	<code>onRemoved</code> callback fires if someone else removes you. The
-	<code>onMembersChanged</code> callback fires when any member joins or leaves.
+	Each item tracks who added it via <code>addedBy</code> (the user's public key).
+	The <code>getInviteLink()</code> helper generates a shareable URL containing the
+	encoded invite.
 </p>
 
-<CodeBlock code={dbCreate} lang="typescript" title="src/lib/db.ts" />
+<CodeBlock code={dbModule} lang="typescript" title="src/lib/db.ts" />
 
-<h2>3. Join via Invite</h2>
+<h2>2. Initialize in the Client Hook</h2>
 
 <p>
-	Decode the invite and pass its contents (<code>relays</code>, <code>epochKeys</code>,
-	<code>dbName</code>) to a new <code>Tablinum</code> instance:
+	Same pattern as the todo example — initialize in the <code>init</code> hook so the
+	database is ready before components render:
 </p>
 
-<CodeBlock code={dbJoin} lang="typescript" title="src/lib/db.ts (join variant)" />
+<CodeBlock code={hooksClient} lang="typescript" title="src/hooks.client.ts" />
+
+<h2>3. Add Items</h2>
 
 <p>
-	Create a <code>/join</code> route that reads the invite from the URL:
+	Stamp each item with the current user's <code>db.publicKey</code> so you can track
+	who added what:
 </p>
 
-<CodeBlock code={joinPage} lang="svelte" title="src/routes/join/+page.svelte" />
+<CodeBlock code={shoppingForm} lang="svelte" title="ShoppingForm.svelte" />
 
-<h2>4. Set Your Profile</h2>
-
-<p>
-	Before syncing, set a display name so collaborators know who you are.
-	Profiles are synced alongside your data.
-</p>
-
-<CodeBlock code={profileSetup} lang="svelte" title="ProfileSetup.svelte" />
-
-<h2>5. Add Items</h2>
+<h2>4. Display the List</h2>
 
 <p>
-	Stamp each item with the current user's <code>publicKey</code> so you can display
-	who added it:
-</p>
-
-<CodeBlock code={addItem} lang="svelte" title="AddItem.svelte" />
-
-<h2>6. The Shopping List</h2>
-
-<p>
-	Query items by <code>checked</code> status. Look up member profiles to show names
-	instead of raw public keys:
+	<code>ShoppingList</code> is a reusable component that receives the collection handle and
+	a filtered array of records as props. The parent page splits items into "needed" and "got"
+	lists. Notice it accepts <code>Collection&lt;any&gt;</code> — the component doesn't need
+	to know the full schema to call <code>update()</code> and <code>delete()</code>.
 </p>
 
 <CodeBlock code={shoppingList} lang="svelte" title="ShoppingList.svelte" />
 
-<h2>7. Manage Members</h2>
+<h2>5. Manage Members</h2>
 
 <p>
-	Show the members list, copy invite links, and remove members. When you call
-	<code>removeMember()</code>, Tablinum automatically rotates the epoch key — the removed
-	person keeps their old key but cannot decrypt anything new.
+	The members panel combines the member list with a profile editor. Members are queried
+	reactively via <code>db.members</code> (a built-in collection). Call
+	<code>db.setProfile()</code> to set a display name that other collaborators will see,
+	and <code>db.removeMember()</code> to revoke someone's access — this triggers automatic
+	key rotation.
 </p>
 
-<CodeBlock code={memberPanel} lang="svelte" title="MemberPanel.svelte" />
+<CodeBlock code={shoppingMembers} lang="svelte" title="ShoppingMembers.svelte" />
 
-<h2>8. Auto-Sync</h2>
+<h2>6. Page Component</h2>
 
 <p>
-	Set up an interval to sync periodically so all collaborators see changes quickly.
-	Only sync when the tab is visible to save battery and bandwidth:
+	The page component ties everything together. It queries items by <code>checked</code> status,
+	provides a toolbar for copying invite links, toggling the members panel, and triggering
+	a manual sync. The <code>pendingCount</code> property shows how many local changes haven't
+	been synced yet.
 </p>
 
-<CodeBlock code={autoSync} lang="typescript" />
+<CodeBlock code={shoppingPage} lang="svelte" title="src/routes/shopping/+page.svelte" />
+
+<h2>How Invites Work</h2>
+
+<p>
+	The flow for sharing a list is:
+</p>
+
+<ol>
+	<li>User A clicks "Copy Invite Link" — this calls <code>db.exportInvite()</code> and
+		encodes the result into a URL</li>
+	<li>User A sends the link to User B</li>
+	<li>User B opens the link — the <code>?invite=</code> parameter is detected in
+		<code>initDb()</code>, which decodes it and passes the epoch keys, relays, and
+		database name to the constructor</li>
+	<li>User B's database automatically syncs with the shared relays using the provided keys</li>
+</ol>
+
+<p>
+	No separate <code>/join</code> route is needed — the same page handles both creating and
+	joining a list.
+</p>
 
 <h2>Key Takeaways</h2>
 
 <ul>
-	<li>Invites bundle everything needed to join: epoch keys, relay URLs, and database name</li>
+	<li>One <code>initDb()</code> function handles both new databases and joining via invite</li>
 	<li><code>db.publicKey</code> identifies the current user — stamp records with it to track authorship</li>
-	<li>Call <code>setProfile()</code> so collaborators see a display name instead of a raw key</li>
-	<li><code>removeMember()</code> triggers automatic key rotation — no manual crypto needed</li>
+	<li>Call <code>db.setProfile()</code> so collaborators see a display name instead of a raw key</li>
+	<li><code>db.removeMember()</code> triggers automatic key rotation — no manual crypto needed</li>
+	<li><code>db.members</code> is a reactive collection — query it with <code>$derived(await ...)</code> like any other collection</li>
 	<li><code>onRemoved</code> notifies the current user if they're kicked</li>
-	<li><code>onMembersChanged</code> fires whenever someone joins or leaves</li>
+	<li>Sync is manual via a toolbar button — call <code>db.sync()</code> when the user wants it</li>
 	<li>All data stays encrypted end-to-end — the relay never sees item names, quantities, or who added what</li>
 </ul>

@@ -1,180 +1,60 @@
 <script lang="ts">
 	import CodeBlock from "$lib/components/CodeBlock.svelte";
 
-	const schema = `// src/lib/schema.ts
-import { collection, field } from "tablinum/svelte";
+	const dbModule = `// src/lib/db.ts
+import { Tablinum, field, collection, type InferRecord } from "tablinum/svelte";
 
-export const schema = {
-  todos: collection("todos", {
+const todosCollection = collection(
+  "todos",
+  {
     title: field.string(),
     done: field.boolean(),
     priority: field.number(),
-    notes: field.optional(field.string()),
-  }, {
-    indices: ["done", "priority"],
-    eventRetention: 5,  // keep last 5 events per record for undo
-  }),
-};`;
-
-	const dbModule = `// src/lib/db.ts
-import { Tablinum } from "tablinum/svelte";
-import { schema } from "./schema";
-
-export const db = new Tablinum({
-  schema,
-  relays: ["wss://relay.example.com"],
-  logLevel: "info",
-  onSyncError: (error) => {
-    console.warn("Sync failed:", error.message);
   },
-});
+  { indices: ["done", "priority"], eventRetention: 5 },
+);
 
-export const todos = db.collection("todos");`;
+export type TodoRecord = InferRecord<typeof todosCollection>;
 
-	const addForm = `<script lang="ts">
-  import { todos } from "$lib/db";
+const schema = { todos: todosCollection };
 
-  let title = $state("");
-  let priority = $state(1);
+let _db: Tablinum<typeof schema> | null = null;
 
-  async function addTodo(e: SubmitEvent) {
-    e.preventDefault();
-    if (!title.trim()) return;
-    await todos.add({
-      title: title.trim(),
-      done: false,
-      priority,
-    });
-    title = "";
-    priority = 1;
-  }
-<\/script>
+export function initDb() {
+  if (_db && _db.status !== "closed" && _db.status !== "error") return _db;
 
-<form onsubmit={addTodo}>
-  <input bind:value={title} placeholder="What needs doing?" />
-  <select bind:value={priority}>
-    <option value={1}>Low</option>
-    <option value={2}>Medium</option>
-    <option value={3}>High</option>
-  </select>
-  <button type="submit">Add</button>
-</form>`;
+  _db = new Tablinum({
+    schema,
+    relays: ["wss://relay.example.com"],
+    onSyncError: (err) => {
+      console.error("[tablinum:sync]", err.message);
+    },
+  });
 
-	const todoList = `<script lang="ts">
-  import { db, todos } from "$lib/db";
+  return _db;
+}
 
-  // Pending todos, sorted by priority (high first)
-  let pending = $derived(
-    db.status === "ready"
-      ? await todos.where("done").equals(false)
-          .sortBy("priority")
-          .reverse()
-          .get()
-      : [],
-  );
+export function getDb() {
+  if (!_db) throw new Error("Database not initialized — did hooks.client.ts run?");
+  return _db;
+}`;
 
-  // Completed todos
-  let completed = $derived(
-    db.status === "ready"
-      ? await todos.where("done").equals(true).get()
-      : [],
-  );
+	const hooksClient = `// src/hooks.client.ts
+import { initDb, getDb } from "$lib/db";
 
-  // Total count
-  let total = $derived(
-    db.status === "ready" ? await todos.count() : 0
-  );
+export async function init() {
+  initDb();
+  await getDb().ready.catch(() => undefined);
+}`;
 
-  async function toggle(id: string, currentDone: boolean) {
-    await todos.update(id, { done: !currentDone });
-  }
+	const todoForm = `<!-- src/lib/components/TodoForm.svelte -->
+<script lang="ts">
+  import { getDb } from "$lib/db";
 
-  async function remove(id: string) {
-    await todos.delete(id);
-  }
-
-  async function undoLast(id: string) {
-    await todos.undo(id);
-  }
-<\/script>
-
-<p>{pending.length} pending of {total} total</p>
-
-<h3>To Do</h3>
-<ul>
-  {#each pending as todo (todo.id)}
-    <li>
-      <input type="checkbox"
-        onchange={() => toggle(todo.id, todo.done)} />
-      <span class="priority-{todo.priority}">{todo.title}</span>
-      {#if todo.notes}
-        <small>{todo.notes}</small>
-      {/if}
-      <button onclick={() => undoLast(todo.id)}>Undo</button>
-      <button onclick={() => remove(todo.id)}>Delete</button>
-    </li>
-  {/each}
-</ul>
-
-<h3>Done</h3>
-<ul>
-  {#each completed as todo (todo.id)}
-    <li>
-      <input type="checkbox" checked
-        onchange={() => toggle(todo.id, todo.done)} />
-      <s>{todo.title}</s>
-    </li>
-  {/each}
-</ul>`;
-
-	const syncControls = `<script lang="ts">
-  import { db } from "$lib/db";
-<\/script>
-
-{#if db.status === "error"}
-  <p class="error">Error: {db.error?.message}</p>
-{/if}
-
-<footer>
-  <button onclick={() => db.sync()} disabled={db.syncStatus === "syncing"}>
-    {db.syncStatus === "syncing" ? "Syncing..." : "Sync"}
-  </button>
-
-  {#if db.pendingCount > 0}
-    <span>{db.pendingCount} unsynced changes</span>
-  {/if}
-
-  {#if db.relayStatus.connectedUrls.length > 0}
-    <span>Connected to {db.relayStatus.connectedUrls.length} relay(s)</span>
-  {:else}
-    <span>Offline</span>
-  {/if}
-</footer>`;
-
-	const fullApp = `<script lang="ts">
-  import { db, todos } from "$lib/db";
-  import type { InferRecord } from "tablinum/svelte";
-  import { schema } from "$lib/schema";
-
-  type Todo = InferRecord<typeof schema.todos>;
+  const todos = getDb().collection("todos");
 
   let title = $state("");
   let priority = $state(1);
-
-  let pending = $derived(
-    db.status === "ready"
-      ? await todos.where("done").equals(false)
-          .sortBy("priority")
-          .reverse()
-          .get()
-      : [],
-  );
-
-  let completed = $derived(
-    db.status === "ready"
-      ? await todos.where("done").equals(true).get()
-      : [],
-  );
 
   async function addTodo(e: SubmitEvent) {
     e.preventDefault();
@@ -183,9 +63,36 @@ export const todos = db.collection("todos");`;
     title = "";
     priority = 1;
   }
+<\/script>
 
-  async function toggle(id: string, done: boolean) {
-    await todos.update(id, { done: !done });
+<form onsubmit={addTodo}>
+  <input bind:value={title} placeholder="Add a todo..." />
+  <select bind:value={priority}>
+    <option value={1}>Low</option>
+    <option value={2}>Medium</option>
+    <option value={3}>High</option>
+  </select>
+  <button type="submit">Add</button>
+</form>`;
+
+	const todoList = `<!-- src/lib/components/TodoList.svelte -->
+<script lang="ts">
+  import { getDb, type TodoRecord } from "$lib/db";
+
+  let {
+    items,
+    label,
+    isDone = false,
+  }: {
+    items: ReadonlyArray<TodoRecord>;
+    label: string;
+    isDone?: boolean;
+  } = $props();
+
+  const todos = getDb().collection("todos");
+
+  async function toggle(id: string, currentDone: boolean) {
+    await todos.update(id, { done: !currentDone });
   }
 
   async function remove(id: string) {
@@ -197,61 +104,58 @@ export const todos = db.collection("todos");`;
   }
 <\/script>
 
+<h2>{label} ({items.length})</h2>
+<ul>
+  {#each items as todo (todo.id)}
+    <li class:done={isDone}>
+      <label>
+        <input
+          type="checkbox"
+          checked={isDone}
+          onchange={() => toggle(todo.id, todo.done)}
+        />
+        <span>{todo.title}</span>
+        {#if todo.priority > 1}
+          <span class="priority priority-{todo.priority}">
+            {todo.priority === 3 ? "High" : "Med"}
+          </span>
+        {/if}
+      </label>
+      <button onclick={() => undo(todo.id)} title="Undo last change">↩</button>
+      <button onclick={() => remove(todo.id)}>✕</button>
+    </li>
+  {/each}
+</ul>`;
+
+	const todosPage = `<!-- src/routes/todos/+page.svelte -->
+<script lang="ts">
+  import { getDb } from "$lib/db";
+  import TodoForm from "$lib/components/TodoForm.svelte";
+  import TodoList from "$lib/components/TodoList.svelte";
+
+  const db = getDb();
+  const todos = db.collection("todos");
+
+  let total = $derived(await todos.count());
+  let incomplete = $derived(
+    await todos.where("done").equals(false)
+      .sortBy("priority").reverse().get(),
+  );
+  let done = $derived(await todos.where("done").equals(true).get());
+<\/script>
+
 <svelte:boundary>
   {#snippet pending()}
-    <p>Loading database...</p>
+    <p>Loading todos...</p>
   {/snippet}
 
-  {#if db.status === "error"}
-    <p>Error: {db.error?.message}</p>
-  {:else}
-    <h2>Todos</h2>
+  <h1>Todos</h1>
 
-    <form onsubmit={addTodo}>
-      <input bind:value={title} placeholder="What needs doing?" />
-      <select bind:value={priority}>
-        <option value={1}>Low</option>
-        <option value={2}>Medium</option>
-        <option value={3}>High</option>
-      </select>
-      <button type="submit">Add</button>
-    </form>
+  <TodoForm />
+  <p>{total} total</p>
 
-    <ul>
-      {#each pending as todo (todo.id)}
-        <li>
-          <input type="checkbox"
-            onchange={() => toggle(todo.id, todo.done)} />
-          <span>{todo.title}</span>
-          <button onclick={() => undo(todo.id)}>Undo</button>
-          <button onclick={() => remove(todo.id)}>x</button>
-        </li>
-      {/each}
-    </ul>
-
-    {#if completed.length > 0}
-      <h3>Completed</h3>
-      <ul>
-        {#each completed as todo (todo.id)}
-          <li>
-            <input type="checkbox" checked
-              onchange={() => toggle(todo.id, todo.done)} />
-            <s>{todo.title}</s>
-          </li>
-        {/each}
-      </ul>
-    {/if}
-
-    <footer>
-      <button onclick={() => db.sync()}
-        disabled={db.syncStatus === "syncing"}>
-        {db.syncStatus === "syncing" ? "Syncing..." : "Sync now"}
-      </button>
-      {#if db.pendingCount > 0}
-        <small>{db.pendingCount} unsynced</small>
-      {/if}
-    </footer>
-  {/if}
+  <TodoList items={incomplete} label="Todo" />
+  <TodoList items={done} label="Done" isDone />
 </svelte:boundary>`;
 </script>
 
@@ -268,73 +172,87 @@ export const todos = db.collection("todos");`;
 
 <p>
 	This example covers: schema with indices, CRUD operations, filtered and sorted queries, undo,
-	sync status, and offline support.
+	priority levels, and sync.
 </p>
 
-<h2>1. Define a Schema</h2>
+<blockquote>
+	View the full working source on <a
+		href="https://github.com/kevmodrome/localstr/tree/main/examples/svelte"
+		target="_blank"
+		rel="noopener noreferrer">GitHub</a
+	>.
+</blockquote>
+
+<h2>1. Database Module</h2>
 
 <p>
-	Start with a collection for todos. We index <code>done</code> and <code>priority</code> so
-	filtered queries on those fields are fast. Setting <code>eventRetention</code> to 5 lets us undo
-	up to 5 changes per record.
+	Define the schema inline with <code>collection()</code> and <code>field</code> helpers. We
+	index <code>done</code> and <code>priority</code> for fast filtered queries. Setting
+	<code>eventRetention</code> to 5 lets us undo up to 5 changes per record.
 </p>
 
-<CodeBlock code={schema} lang="typescript" title="src/lib/schema.ts" />
-
-<h2>2. Create the Database Module</h2>
-
 <p>
-	Instantiate <code>Tablinum</code> once and export the database and collection handles.
-	Every component imports from this module.
+	The module exposes <code>initDb()</code> (called once at startup) and <code>getDb()</code>
+	(used by components to access the database). This singleton pattern ensures every component
+	shares the same database instance.
 </p>
 
 <CodeBlock code={dbModule} lang="typescript" title="src/lib/db.ts" />
 
+<h2>2. Initialize in the Client Hook</h2>
+
+<p>
+	Call <code>initDb()</code> from SvelteKit's <code>init</code> client hook. This runs once when
+	the app starts in the browser — before any components render. We also <code>await</code> the
+	<code>ready</code> promise so the database is fully initialized before the UI loads.
+</p>
+
+<CodeBlock code={hooksClient} lang="typescript" title="src/hooks.client.ts" />
+
+<p>
+	Because the database is ready before components render, you don't need <code>db.status === "ready"</code>
+	guards in your <code>$derived</code> queries — collection methods internally await readiness.
+</p>
+
 <h2>3. Add Todos</h2>
 
 <p>
-	A form component that calls <code>todos.add()</code>. The data is written to IndexedDB immediately —
-	no loading spinners, no network round-trip.
+	A form component that calls <code>todos.add()</code> with a title and priority level.
+	The data is written to IndexedDB immediately — no loading spinners, no network round-trip.
 </p>
 
-<CodeBlock code={addForm} lang="svelte" title="AddTodo.svelte" />
+<CodeBlock code={todoForm} lang="svelte" title="TodoForm.svelte" />
 
-<h2>4. List and Filter Todos</h2>
+<h2>4. Display Todos</h2>
 
 <p>
-	Use <code>$derived(await ...)</code> for reactive queries. When data changes (add, update, delete, undo,
-	or sync), the queries re-evaluate automatically. Chain <code>.sortBy()</code> and <code>.reverse()</code>
-	for sorting.
+	<code>TodoList</code> is a reusable component that receives items as a prop.
+	It handles toggling, deleting, and undoing individual records. Priority badges highlight
+	medium and high priority items.
 </p>
 
 <CodeBlock code={todoList} lang="svelte" title="TodoList.svelte" />
 
-<h2>5. Sync Controls</h2>
+<h2>5. Page Component</h2>
 
 <p>
-	Show sync status, pending change count, and relay connectivity. The <code>sync()</code> call
-	exchanges encrypted data with your relay — other devices running the same app (with the same
-	private key) pick up the changes.
+	The page component orchestrates the queries with <code>$derived(await ...)</code>.
+	When data changes — via add, update, delete, undo, or sync — the queries automatically
+	re-evaluate. The <code>svelte:boundary</code> shows a loading state while the initial
+	async queries resolve.
 </p>
 
-<CodeBlock code={syncControls} lang="svelte" title="SyncBar.svelte" />
-
-<h2>Full App</h2>
-
-<p>
-	Here's everything in a single component. In a real app you'd split this into the pieces above,
-	but this shows the complete picture:
-</p>
-
-<CodeBlock code={fullApp} lang="svelte" title="src/routes/+page.svelte" />
+<CodeBlock code={todosPage} lang="svelte" title="src/routes/todos/+page.svelte" />
 
 <h2>Key Takeaways</h2>
 
 <ul>
-	<li>All reads and writes are local — the app works offline out of the box</li>
-	<li><code>$derived(await ...)</code> handles reactivity. No manual subscriptions needed</li>
-	<li>Guard queries with <code>db.status === "ready"</code> since the database initializes async</li>
+	<li>Initialize in <code>hooks.client.ts</code> via the <code>init</code> hook — the database
+		is ready before any component renders</li>
+	<li>Use <code>getDb()</code> in components to access the shared database instance</li>
+	<li><code>$derived(await ...)</code> handles reactivity — no manual subscriptions or
+		<code>db.status</code> guards needed</li>
+	<li>Split queries into the page component and pass data down as props for clean composition</li>
 	<li><code>undo(id)</code> reverts the last change, up to <code>eventRetention</code> deep</li>
-	<li><code>sync()</code> is explicit — call it when the user taps "Sync" or on an interval</li>
-	<li>Use <code>InferRecord&lt;typeof collection&gt;</code> for typed records</li>
+	<li><code>sync()</code> is explicit — call it when the user taps a button or on an interval</li>
 </ul>

@@ -15,6 +15,7 @@
 		{ title: "Examples", href: "/docs/examples" },
 		{ title: "Todo App", href: "/docs/examples/todo-app", indent: true },
 		{ title: "Shared List", href: "/docs/examples/shared-list", indent: true },
+		{ title: "Effect Notes", href: "/docs/examples/effect-notes", indent: true },
 	];
 </script>
 
