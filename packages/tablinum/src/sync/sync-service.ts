@@ -1,4 +1,4 @@
-import { Effect, Layer, Option, References, Ref, Schedule, Scope } from "effect";
+import { Duration, Effect, Layer, Option, References, Ref, Schedule, Scope } from "effect";
 import type { LogLevel } from "effect";
 import type { NostrEvent } from "nostr-tools/pure";
 import type { Filter } from "nostr-tools/filter";
@@ -25,6 +25,8 @@ export interface SyncHandle {
   readonly publishLocal: (giftWrap: StoredGiftWrap) => Effect.Effect<void>;
   readonly startSubscription: () => Effect.Effect<void>;
   readonly addEpochSubscription: (publicKey: string) => Effect.Effect<void>;
+  readonly startHealing: () => void;
+  readonly stopHealing: () => void;
 }
 
 export function createSyncHandle(
@@ -115,7 +117,7 @@ export function createSyncHandle(
 
       const unwrapResult = yield* Effect.result(giftWrapHandle.unwrap(remoteGw));
       if (unwrapResult._tag === "Failure") {
-        yield* storage.putGiftWrap({ id: remoteGw.id, createdAt: remoteGw.created_at });
+        yield* storage.putGiftWrap({ id: remoteGw.id, event: remoteGw, createdAt: remoteGw.created_at });
         return null;
       }
 
@@ -123,13 +125,13 @@ export function createSyncHandle(
 
       const dTag = rumor.tags.find((t: string[]) => t[0] === "d")?.[1];
       if (!dTag) {
-        yield* storage.putGiftWrap({ id: remoteGw.id, createdAt: remoteGw.created_at });
+        yield* storage.putGiftWrap({ id: remoteGw.id, event: remoteGw, createdAt: remoteGw.created_at });
         return null;
       }
 
       const colonIdx = dTag.indexOf(":");
       if (colonIdx === -1) {
-        yield* storage.putGiftWrap({ id: remoteGw.id, createdAt: remoteGw.created_at });
+        yield* storage.putGiftWrap({ id: remoteGw.id, event: remoteGw, createdAt: remoteGw.created_at });
         return null;
       }
 
@@ -138,7 +140,7 @@ export function createSyncHandle(
 
       const retention = knownCollections.get(collectionName);
       if (retention === undefined) {
-        yield* storage.putGiftWrap({ id: remoteGw.id, createdAt: remoteGw.created_at });
+        yield* storage.putGiftWrap({ id: remoteGw.id, event: remoteGw, createdAt: remoteGw.created_at });
         return null;
       }
 
@@ -148,7 +150,7 @@ export function createSyncHandle(
           yield* Effect.logWarning("Rejected write from removed member", {
             author: rumor.pubkey.slice(0, 12),
           });
-          yield* storage.putGiftWrap({ id: remoteGw.id, createdAt: remoteGw.created_at });
+          yield* storage.putGiftWrap({ id: remoteGw.id, event: remoteGw, createdAt: remoteGw.created_at });
           return null;
         }
       }
@@ -161,7 +163,7 @@ export function createSyncHandle(
         catch: () => undefined,
       }).pipe(Effect.orElseSucceed(() => undefined));
       if (parsed === undefined) {
-        yield* storage.putGiftWrap({ id: remoteGw.id, createdAt: remoteGw.created_at });
+        yield* storage.putGiftWrap({ id: remoteGw.id, event: remoteGw, createdAt: remoteGw.created_at });
         return null;
       }
 
@@ -185,6 +187,7 @@ export function createSyncHandle(
 
       yield* storage.putGiftWrap({
         id: remoteGw.id,
+        event: remoteGw,
         createdAt: remoteGw.created_at,
       });
       yield* storage.putEvent(event);
@@ -352,7 +355,6 @@ export function createSyncHandle(
               if (!gw?.event) return;
 
               yield* relay.publish(gw.event, [url]).pipe(
-                Effect.andThen(storage.stripGiftWrapBlob(id)),
                 Effect.tapError((err) => Effect.sync(() => onSyncError?.(err))),
                 Effect.ignore,
               );
@@ -361,6 +363,28 @@ export function createSyncHandle(
         );
       }
     }).pipe(Effect.withLogSpan("tablinum.syncRelay"));
+
+  let healingActive = false;
+
+  const healingEffect = Effect.gen(function* () {
+    if (!healingActive) return;
+    const status = yield* syncStatus.get();
+    if (status === "syncing") return;
+
+    yield* syncStatus.set("syncing");
+    yield* Effect.gen(function* () {
+      const pubKeys = getSubscriptionPubKeys();
+      const changedCollections = new Set<string>();
+
+      yield* Effect.forEach(relayUrls, (url) => syncRelay(url, pubKeys, changedCollections), {
+        discard: true,
+      });
+
+      if (changedCollections.size > 0) {
+        yield* notifyReplayComplete(watchCtx, [...changedCollections]);
+      }
+    }).pipe(Effect.ensuring(syncStatus.set("idle")));
+  }).pipe(Effect.ignore);
 
   const handle: SyncHandle = {
     sync: () =>
@@ -421,6 +445,22 @@ export function createSyncHandle(
 
     addEpochSubscription: (publicKey: string) =>
       subscribeAcrossRelays({ kinds: [GiftWrap], "#p": [publicKey] }, processRealtimeGiftWrap),
+
+    startHealing: () => {
+      if (healingActive) return;
+      healingActive = true;
+      forkHandled(
+        Effect.sleep(Duration.minutes(5)).pipe(
+          Effect.andThen(healingEffect),
+          Effect.repeat(Schedule.spaced(Duration.minutes(5))),
+          Effect.ensuring(Effect.sync(() => { healingActive = false; })),
+        ),
+      );
+    },
+
+    stopHealing: () => {
+      healingActive = false;
+    },
   };
 
   forkHandled(

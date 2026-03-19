@@ -4,6 +4,7 @@ import type { NostrEvent } from "nostr-tools/pure";
 import { StorageError } from "../errors.ts";
 import type { SchemaConfig } from "../schema/types.ts";
 import type { DatabaseName } from "../brands.ts";
+import { packEvent, unpackEvent } from "../sync/compact-event.ts";
 
 export interface StoredEvent {
   readonly id: string;
@@ -65,7 +66,6 @@ export interface IDBStorageHandle {
   readonly getGiftWrap: (id: string) => Effect.Effect<StoredGiftWrap | undefined, StorageError>;
   readonly getAllGiftWraps: () => Effect.Effect<ReadonlyArray<StoredGiftWrap>, StorageError>;
   readonly deleteGiftWrap: (id: string) => Effect.Effect<void, StorageError>;
-  readonly stripGiftWrapBlob: (id: string) => Effect.Effect<void, StorageError>;
 
   readonly deleteEvent: (id: string) => Effect.Effect<void, StorageError>;
   readonly stripEventData: (id: string) => Effect.Effect<void, StorageError>;
@@ -244,22 +244,52 @@ export function openIDBStorage(
           db.getAllFromIndex("events", "by-record", [collection, recordId]),
         ),
 
-      putGiftWrap: (gw) => wrap("putGiftWrap", () => db.put("giftwraps", gw).then(() => undefined)),
+      putGiftWrap: (gw) =>
+        wrap("putGiftWrap", async () => {
+          if (gw.event) {
+            const compact = packEvent(gw.event);
+            await db.put("giftwraps", { id: gw.id, compact, createdAt: gw.createdAt });
+          } else {
+            await db.put("giftwraps", { id: gw.id, createdAt: gw.createdAt });
+          }
+        }),
 
-      getGiftWrap: (id) => wrap("getGiftWrap", () => db.get("giftwraps", id)),
+      getGiftWrap: (id) =>
+        wrap("getGiftWrap", async () => {
+          const raw = await db.get("giftwraps", id);
+          if (!raw) return undefined;
+          if (raw.compact) {
+            return { id: raw.id, event: unpackEvent(raw.id, raw.compact), createdAt: raw.createdAt };
+          }
+          // Migration: legacy entry with event field
+          if (raw.event) {
+            const compact = packEvent(raw.event);
+            await db.put("giftwraps", { id: raw.id, compact, createdAt: raw.createdAt });
+            return { id: raw.id, event: raw.event, createdAt: raw.createdAt };
+          }
+          return { id: raw.id, createdAt: raw.createdAt };
+        }),
 
-      getAllGiftWraps: () => wrap("getAllGiftWraps", () => db.getAll("giftwraps")),
+      getAllGiftWraps: () =>
+        wrap("getAllGiftWraps", async () => {
+          const raws = await db.getAll("giftwraps");
+          const results: StoredGiftWrap[] = [];
+          for (const raw of raws) {
+            if (raw.compact) {
+              results.push({ id: raw.id, event: unpackEvent(raw.id, raw.compact), createdAt: raw.createdAt });
+            } else if (raw.event) {
+              const compact = packEvent(raw.event);
+              await db.put("giftwraps", { id: raw.id, compact, createdAt: raw.createdAt });
+              results.push({ id: raw.id, event: raw.event, createdAt: raw.createdAt });
+            } else {
+              results.push({ id: raw.id, createdAt: raw.createdAt });
+            }
+          }
+          return results;
+        }),
 
       deleteGiftWrap: (id) =>
         wrap("deleteGiftWrap", () => db.delete("giftwraps", id).then(() => undefined)),
-
-      stripGiftWrapBlob: (id) =>
-        wrap("stripGiftWrapBlob", async () => {
-          const existing = await db.get("giftwraps", id);
-          if (existing) {
-            await db.put("giftwraps", { id: existing.id, createdAt: existing.createdAt });
-          }
-        }),
 
       deleteEvent: (id) => wrap("deleteEvent", () => db.delete("events", id).then(() => undefined)),
 
