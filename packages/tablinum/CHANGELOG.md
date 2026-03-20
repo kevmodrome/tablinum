@@ -1,5 +1,11 @@
 # tablinum
 
+## 0.6.3
+
+### Patch Changes
+
+- 82fb116: Fix issue where invites were not correctly working if you already had a DB initialized
+
 ## 0.6.2
 
 ### Patch Changes
