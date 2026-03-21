@@ -167,6 +167,29 @@ describe("schema validation", () => {
     }),
   );
 
+  it.effect("allows omitting optional fields inside nested objects", () =>
+    Effect.gen(function* () {
+      const def = collection("contacts", {
+        name: field.string(),
+        address: field.object({
+          street: field.string(),
+          zip: field.optional(field.string()),
+        }),
+      });
+      const validate = buildValidator("contacts", def);
+      const result = yield* validate({
+        id: "abc",
+        name: "Alice",
+        address: { street: "123 Main" },
+      });
+      expect(result).toEqual({
+        id: "abc",
+        name: "Alice",
+        address: { street: "123 Main" },
+      });
+    }),
+  );
+
   it.effect("validates optional nested object fields", () =>
     Effect.gen(function* () {
       const def = collection("contacts", {
