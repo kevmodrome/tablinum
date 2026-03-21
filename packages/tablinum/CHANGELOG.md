@@ -1,5 +1,11 @@
 # tablinum
 
+## 0.7.0
+
+### Minor Changes
+
+- 4925f88: Add functionality to leave and/or destroy a DB
+
 ## 0.6.4
 
 ### Patch Changes
