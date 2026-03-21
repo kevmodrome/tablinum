@@ -1,5 +1,11 @@
 # tablinum
 
+## 0.6.4
+
+### Patch Changes
+
+- b23cebf: Fix optional fields not really being optional in nested objects
+
 ## 0.6.3
 
 ### Patch Changes
