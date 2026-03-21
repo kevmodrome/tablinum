@@ -5,6 +5,8 @@ import type { DatabaseHandle } from "./database-handle.ts";
 import type { EpochKeyInput } from "./epoch.ts";
 import { resolveRuntimeConfig } from "./runtime-config.ts";
 import { CryptoError, StorageError, ValidationError } from "../errors.ts";
+import { deleteIDBStorage } from "../storage/idb.ts";
+import { DatabaseName } from "../brands.ts";
 import { Config, type TablinumConfigShape } from "../services/Config.ts";
 import { Tablinum } from "../services/Tablinum.ts";
 import { TablinumLive } from "../layers/TablinumLive.ts";
@@ -49,6 +51,12 @@ function validateConfig<S extends SchemaConfig>(
       });
     }
   });
+}
+
+export function deleteDatabase(
+  dbName?: string,
+): Effect.Effect<void, StorageError> {
+  return deleteIDBStorage(DatabaseName(dbName ?? "tablinum"));
 }
 
 export function createTablinum<S extends SchemaConfig>(

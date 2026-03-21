@@ -23,6 +23,7 @@ export {
   ClosedError,
 } from "../errors.ts";
 
+export { deleteDatabase } from "../db/create-tablinum.ts";
 export { Tablinum } from "./tablinum.svelte.ts";
 export { Collection } from "./collection.svelte.ts";
 export type {
