@@ -1,7 +1,7 @@
 import { describe, expect } from "vitest";
 import { it } from "@effect/vitest";
 import { Effect } from "effect";
-import { openIDBStorage } from "../../src/storage/idb.ts";
+import { openIDBStorage, deleteIDBStorage } from "../../src/storage/idb.ts";
 import { field } from "../../src/schema/field.ts";
 import { collection } from "../../src/schema/collection.ts";
 import { DatabaseName } from "../../src/brands.ts";
@@ -175,6 +175,26 @@ describe("IDBStorage", () => {
       expect(event!.recordId).toBe("r1");
       expect(event!.kind).toBe("c");
       expect(event!.createdAt).toBe(100);
+    }),
+  );
+
+  it.effect("deleteIDBStorage removes the database", () =>
+    Effect.gen(function* () {
+      const schema = makeSchema();
+      const storage = yield* openIDBStorage(DatabaseName("test-delete"), schema);
+      yield* storage.putRecord("todos", { id: "r1", title: "X", _d: false, _u: 100 });
+      yield* storage.close();
+      yield* deleteIDBStorage(DatabaseName("test-delete"));
+      // Re-open — should be empty (fresh database)
+      const storage2 = yield* openIDBStorage(DatabaseName("test-delete"), schema);
+      const all = yield* storage2.getAllRecords("todos");
+      expect(all.length).toBe(0);
+    }),
+  );
+
+  it.effect("deleteIDBStorage on non-existent db succeeds", () =>
+    Effect.gen(function* () {
+      yield* deleteIDBStorage(DatabaseName("does-not-exist"));
     }),
   );
 });

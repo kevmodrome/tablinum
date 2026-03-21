@@ -4,7 +4,7 @@ export type { CollectionDef, CollectionFields } from "./schema/collection.ts";
 export type { FieldDef, FieldKind } from "./schema/field.ts";
 export type { InferRecord, SchemaConfig } from "./schema/types.ts";
 
-export { createTablinum } from "./db/create-tablinum.ts";
+export { createTablinum, deleteDatabase } from "./db/create-tablinum.ts";
 export type { TablinumConfig, TablinumLogLevel } from "./db/create-tablinum.ts";
 export { LogLevel } from "effect";
 export type { DatabaseHandle, SyncStatus } from "./db/database-handle.ts";

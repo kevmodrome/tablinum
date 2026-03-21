@@ -3,7 +3,9 @@ import { it } from "@effect/vitest";
 import { Effect, Option } from "effect";
 import { field } from "../../src/schema/field.ts";
 import { collection } from "../../src/schema/collection.ts";
-import { createTablinum } from "../../src/db/create-tablinum.ts";
+import { createTablinum, deleteDatabase } from "../../src/db/create-tablinum.ts";
+import { openIDBStorage } from "../../src/storage/idb.ts";
+import { DatabaseName } from "../../src/brands.ts";
 
 describe("createTablinum", () => {
   it.effect("creates a database and performs CRUD", () =>
@@ -134,6 +136,43 @@ describe("createTablinum", () => {
       });
       const status = yield* db.getSyncStatus();
       expect(status).toBe("idle");
+    }),
+  );
+
+  it.effect("close + deleteDatabase removes the database", () =>
+    Effect.gen(function* () {
+      const todos = collection("todos", {
+        title: field.string(),
+      });
+
+      // Write data via IDB storage, then close + delete
+      const storage = yield* openIDBStorage(DatabaseName("test-destroy"), { todos });
+      yield* storage.putRecord("todos", { id: "r1", title: "Will be deleted", _d: false, _u: 100 });
+      yield* storage.close();
+      yield* deleteDatabase("test-destroy");
+
+      // Re-open — should be empty (fresh database)
+      const storage2 = yield* openIDBStorage(DatabaseName("test-destroy"), { todos });
+      const all = yield* storage2.getAllRecords("todos");
+      expect(all.length).toBe(0);
+    }),
+  );
+
+  it.effect("deleteDatabase removes a database by name", () =>
+    Effect.gen(function* () {
+      const todos = collection("todos", {
+        title: field.string(),
+      });
+
+      const storage = yield* openIDBStorage(DatabaseName("test-delete-standalone"), { todos });
+      yield* storage.putRecord("todos", { id: "r1", title: "X", _d: false, _u: 100 });
+      yield* storage.close();
+
+      yield* deleteDatabase("test-delete-standalone");
+
+      const storage2 = yield* openIDBStorage(DatabaseName("test-delete-standalone"), { todos });
+      const all = yield* storage2.getAllRecords("todos");
+      expect(all.length).toBe(0);
     }),
   );
 

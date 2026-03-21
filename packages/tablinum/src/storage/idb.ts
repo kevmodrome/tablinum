@@ -1,5 +1,5 @@
 import { Effect, Scope } from "effect";
-import { openDB, type IDBPDatabase } from "idb";
+import { openDB, deleteDB, type IDBPDatabase } from "idb";
 import type { NostrEvent } from "nostr-tools/pure";
 import { StorageError } from "../errors.ts";
 import type { SchemaConfig } from "../schema/types.ts";
@@ -147,6 +147,19 @@ function upgradeSchema(database: IDBPDatabase, schema: SchemaConfig, tx: IDBTran
   }
 
   tx.objectStore("_meta").put(computeSchemaSig(schema), "schema_sig");
+}
+
+export function deleteIDBStorage(
+  dbName: DatabaseName,
+): Effect.Effect<void, StorageError> {
+  if (typeof indexedDB === "undefined") {
+    return Effect.fail(
+      new StorageError({
+        message: "IndexedDB is not available in this environment",
+      }),
+    );
+  }
+  return wrap("deleteDatabase", () => deleteDB(dbName));
 }
 
 export function openIDBStorage(

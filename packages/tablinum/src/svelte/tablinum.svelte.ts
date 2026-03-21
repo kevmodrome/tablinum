@@ -8,6 +8,7 @@ import type { Invite } from "../db/invite.ts";
 import type { MemberRecord, AuthorProfile } from "../db/members.ts";
 import {
   createTablinum as coreCreateTablinum,
+  deleteDatabase,
   type TablinumConfig,
 } from "../db/create-tablinum.ts";
 import { resolveLogLevel } from "../db/create-tablinum.ts";
@@ -34,10 +35,12 @@ export class Tablinum<S extends SchemaConfig> {
   #closed = false;
   #readyState = createDeferred<void>();
   #logLevel: LogLevel.LogLevel;
+  #dbName: string;
 
   constructor(config: TablinumConfig<S>) {
     this.ready = this.#readyState.promise;
     this.#logLevel = resolveLogLevel(config.logLevel);
+    this.#dbName = config.dbName ?? "tablinum";
     this.#init(config);
   }
 
@@ -189,6 +192,16 @@ export class Tablinum<S extends SchemaConfig> {
       this.#settleReady(closeError);
     }
     this.status = "closed";
+  };
+
+  destroy = async (): Promise<void> => {
+    await this.close();
+    await Effect.runPromise(deleteDatabase(this.#dbName));
+  };
+
+  leave = async (): Promise<void> => {
+    await this.#runHandleEffect((handle) => handle.leave());
+    await Effect.runPromise(deleteDatabase(this.#dbName));
   };
 
   sync = async (): Promise<void> => this.#runHandleEffect((handle) => handle.sync());

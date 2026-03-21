@@ -29,6 +29,7 @@ import type { EpochStore as EpochStoreShape } from "../db/epoch.ts";
 import { createRotation } from "../db/key-rotation.ts";
 import { uuidv7 } from "../utils/uuid.ts";
 import { StorageError, SyncError, ValidationError } from "../errors.ts";
+import { deleteIDBStorage } from "../storage/idb.ts";
 
 import { Tablinum } from "../services/Tablinum.ts";
 import { Config } from "../services/Config.ts";
@@ -330,6 +331,72 @@ export const TablinumLive = Layer.effect(
             yield* Ref.set(closedRef, true);
             syncHandle.stopHealing();
             yield* Scope.close(scope, Exit.void);
+          }),
+        ),
+
+      destroy: () =>
+        withLog(
+          Effect.gen(function* () {
+            if (!(yield* Ref.get(closedRef))) {
+              yield* Ref.set(closedRef, true);
+              syncHandle.stopHealing();
+              yield* Scope.close(scope, Exit.void);
+            }
+            yield* deleteIDBStorage(config.dbName);
+          }),
+        ),
+
+      leave: () =>
+        withLog(
+          Effect.gen(function* () {
+            if (yield* Ref.get(closedRef)) {
+              return yield* new SyncError({ message: "Database is closed", phase: "leave" });
+            }
+
+            const allMembers = yield* storage.getAllRecords("_members");
+            const activeMembers = allMembers.filter(
+              (member) => !member.removedAt && member.id !== identity.publicKey,
+            );
+            const activePubkeys = activeMembers.map((member) => member.id as string);
+
+            const result = createRotation(
+              epochStore,
+              identity.privateKey,
+              identity.publicKey,
+              activePubkeys,
+              [identity.publicKey],
+            );
+
+            addEpoch(epochStore, result.epoch);
+            epochStore.currentEpochId = result.epoch.id;
+            yield* storage.putMeta("epochs", stringifyEpochStore(epochStore));
+
+            const memberRecord = yield* storage.getRecord("_members", identity.publicKey);
+            yield* putMemberRecord({
+              ...(memberRecord ?? {
+                id: identity.publicKey,
+                addedAt: 0,
+                addedInEpoch: EpochId("epoch-0"),
+              }),
+              removedAt: Date.now(),
+              removedInEpoch: result.epoch.id,
+            });
+
+            yield* Effect.forEach(
+              result.wrappedEvents,
+              (wrappedEvent) =>
+                relay.publish(wrappedEvent as NostrEvent, [...config.relays]).pipe(
+                  Effect.tapError((e) => Effect.sync(() => reportSyncError(config.onSyncError, e))),
+                  Effect.ignore,
+                ),
+              { discard: true },
+            );
+
+            // Close and delete local database
+            yield* Ref.set(closedRef, true);
+            syncHandle.stopHealing();
+            yield* Scope.close(scope, Exit.void);
+            yield* deleteIDBStorage(config.dbName);
           }),
         ),
 

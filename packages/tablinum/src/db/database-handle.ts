@@ -22,6 +22,8 @@ export interface DatabaseHandle<S extends SchemaConfig> {
   readonly exportKey: () => string;
   readonly exportInvite: () => Invite;
   readonly close: () => Effect.Effect<void, StorageError>;
+  readonly destroy: () => Effect.Effect<void, StorageError>;
+  readonly leave: () => Effect.Effect<void, StorageError | SyncError | RelayError | CryptoError>;
   readonly rebuild: () => Effect.Effect<void, StorageError>;
   readonly sync: () => Effect.Effect<void, SyncError | RelayError | CryptoError | StorageError>;
   readonly getSyncStatus: () => Effect.Effect<SyncStatus>;
