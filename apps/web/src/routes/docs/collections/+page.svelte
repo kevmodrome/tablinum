@@ -42,10 +42,11 @@ const urgent = yield* todos.where("priority").above(3).get();`;
 const todosDef = collection("todos", {
   title: field.string(),
   done: field.boolean(),
+  notes: field.optional(field.string()),
 });
 
 type Todo = InferRecord<typeof todosDef>;
-// { id: string; title: string; done: boolean }`;
+// { id: string; title: string; done: boolean; notes?: string | undefined }`;
 </script>
 
 <svelte:head>
@@ -107,7 +108,7 @@ type Todo = InferRecord<typeof todosDef>;
 		<tr>
 			<td><code>field.optional(inner)</code></td>
 			<td><code>T | undefined</code></td>
-			<td>Wraps any field to make it optional</td>
+			<td>Wraps any field to make it optional. The key can be omitted entirely.</td>
 		</tr>
 		<tr>
 			<td><code>field.array(inner)</code></td>
@@ -121,7 +122,7 @@ type Todo = InferRecord<typeof todosDef>;
 
 <p>
 	Use <code>field.object()</code> for structured nested data and <code>field.array()</code> for lists.
-	Combine with <code>field.optional()</code> to make any field nullable:
+	Combine with <code>field.optional()</code> to make any field optional:
 </p>
 
 <CodeBlock code={nestedExample} lang="typescript" />

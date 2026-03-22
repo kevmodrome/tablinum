@@ -39,11 +39,26 @@ const program = Effect.gen(function* () {
 
 Effect.runPromise(Effect.scoped(program));`;
 
-	const cleanupEffect = `// Close the database to release resources
-yield* db.close();`;
+	const lifecycleEffect = `// Release the IndexedDB connection and stop background tasks.
+// Data is preserved locally. Idempotent — safe to call multiple times.
+yield* db.close();
 
-	const cleanupSvelte = `// In Svelte, close returns a Promise
-await db.close();`;
+// Close the connection and delete the local database.
+// Does NOT notify other members.
+yield* db.destroy();
+
+// Leave a collaborative database: rotates the key to exclude yourself,
+// publishes to relays, then closes and deletes locally.
+yield* db.leave();`;
+
+	const lifecycleSvelte = `await db.close();   // release connection, keep data
+await db.destroy(); // close + delete local database
+await db.leave();   // rotate key, publish, close + delete`;
+
+	const deleteDatabaseExample = `import { deleteDatabase } from "tablinum";
+
+// Delete an IndexedDB database by name without opening it
+yield* deleteDatabase("my-app");`;
 
 	const configReference = `const db = yield* createTablinum({
   schema,
@@ -222,14 +237,34 @@ export const todos = db.collection("todos");`;
 	</tbody>
 </table>
 
-<h2>Cleanup</h2>
+<h2 id="database-lifecycle">Database Lifecycle</h2>
 
 <p>
-	Close the database when you're done to release IndexedDB connections and stop background tasks:
+	Tablinum provides several methods for managing the database connection and local data:
 </p>
 
-<CodeBlock code={cleanupEffect} lang="typescript" title="Effect API" />
-<CodeBlock code={cleanupSvelte} lang="typescript" title="Svelte API" />
+<table>
+	<thead>
+		<tr>
+			<th>Method</th>
+			<th>Behavior</th>
+		</tr>
+	</thead>
+	<tbody>
+		<tr><td><code>close()</code></td><td>Release IndexedDB connection and stop background tasks. Data preserved. Idempotent.</td></tr>
+		<tr><td><code>destroy()</code></td><td>Close + delete local database. Does not notify collaborators.</td></tr>
+		<tr><td><code>leave()</code></td><td>Rotate key excluding self, publish to relays, then close + delete locally.</td></tr>
+		<tr><td><code>deleteDatabase(name?)</code></td><td>Standalone function (Effect API). Delete an IndexedDB by name without opening it.</td></tr>
+	</tbody>
+</table>
+
+<CodeBlock code={lifecycleEffect} lang="typescript" title="Effect API" />
+<CodeBlock code={lifecycleSvelte} lang="typescript" title="Svelte API" />
+<CodeBlock code={deleteDatabaseExample} lang="typescript" title="Standalone function" />
+
+<p>
+	Use <code>close()</code> for temporary teardown (e.g. unmounting a component). Use <code>destroy()</code> to wipe local data without affecting other members. Use <code>leave()</code> when exiting a collaborative database.
+</p>
 
 <h2>Next Steps</h2>
 

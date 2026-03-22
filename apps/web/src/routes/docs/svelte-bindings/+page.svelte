@@ -231,6 +231,36 @@ export const todos = db.collection("todos");`;
 	</tbody>
 </table>
 
+<h2>Database Methods</h2>
+
+<p>
+	The <code>Tablinum</code> instance exposes these methods for managing the database, sync, collaboration, and lifecycle:
+</p>
+
+<table>
+	<thead>
+		<tr>
+			<th>Method</th>
+			<th>Returns</th>
+			<th>Description</th>
+		</tr>
+	</thead>
+	<tbody>
+		<tr><td><code>sync()</code></td><td><code>Promise&lt;void&gt;</code></td><td>Sync with configured relays</td></tr>
+		<tr><td><code>rebuild()</code></td><td><code>Promise&lt;void&gt;</code></td><td>Reconstruct state from event history</td></tr>
+		<tr><td><code>close()</code></td><td><code>Promise&lt;void&gt;</code></td><td>Release connection, keep local data</td></tr>
+		<tr><td><code>destroy()</code></td><td><code>Promise&lt;void&gt;</code></td><td>Close + delete local database</td></tr>
+		<tr><td><code>leave()</code></td><td><code>Promise&lt;void&gt;</code></td><td>Rotate key, publish, close + delete locally</td></tr>
+		<tr><td><code>addMember(pubkey)</code></td><td><code>Promise&lt;void&gt;</code></td><td>Add member by Nostr public key</td></tr>
+		<tr><td><code>removeMember(pubkey)</code></td><td><code>Promise&lt;void&gt;</code></td><td>Remove member (triggers key rotation)</td></tr>
+		<tr><td><code>getMembers()</code></td><td><code>Promise&lt;ReadonlyArray&lt;MemberRecord&gt;&gt;</code></td><td>List all members</td></tr>
+		<tr><td><code>getProfile()</code></td><td><code>Promise&lt;AuthorProfile&gt;</code></td><td>Get your profile</td></tr>
+		<tr><td><code>setProfile(profile)</code></td><td><code>Promise&lt;void&gt;</code></td><td>Set display identity</td></tr>
+		<tr><td><code>exportKey()</code></td><td><code>string</code></td><td>Export current epoch key (sync)</td></tr>
+		<tr><td><code>exportInvite()</code></td><td><code>Invite</code></td><td>Export shareable invite (sync)</td></tr>
+	</tbody>
+</table>
+
 <h2>Error Boundaries</h2>
 
 <p>
@@ -278,6 +308,11 @@ export const todos = db.collection("todos");`;
 			<td>Init</td>
 			<td><code>createTablinum()</code></td>
 			<td><code>new Tablinum()</code></td>
+		</tr>
+		<tr>
+			<td>Lifecycle</td>
+			<td><code>close()</code>, <code>destroy()</code>, <code>leave()</code> return <code>Effect</code></td>
+			<td>Return <code>Promise&lt;void&gt;</code></td>
 		</tr>
 	</tbody>
 </table>

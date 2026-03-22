@@ -30,6 +30,14 @@ yield* db.removeMember(pubkey);
 const members = yield* db.getMembers();
 // [{ id, name?, picture?, about?, nip05?, addedAt, addedInEpoch, removedAt?, removedInEpoch? }, ...]`;
 
+	const leaveExample = `// Leave the database — rotates the key to exclude yourself,
+// publishes the new key to remaining members, then
+// closes and deletes the local database.
+yield* db.leave();
+
+// Svelte API
+await db.leave();`;
+
 	const exportKeyExample = `// Export the current epoch key as a hex string
 const key = db.exportKey();`;
 
@@ -139,6 +147,35 @@ console.log(db.publicKey);`;
 <p>
 	The removed member retains their copy of the old key, so they can still read historical data
 	from before the rotation. But all new writes are encrypted with the new key, which they don't have.
+</p>
+
+<h2>Leaving a Database</h2>
+
+<p>
+	Use <code>db.leave()</code> to remove yourself from a collaborative database. This is the counterpart to
+	<code>db.removeMember(pubkey)</code>, which removes someone else — <code>leave()</code> removes <em>yourself</em>.
+</p>
+
+<p>
+	When you call <code>leave()</code>, Tablinum:
+</p>
+
+<ol>
+	<li>Generates a new epoch key that excludes you</li>
+	<li>Publishes the new key to remaining members via the relays</li>
+	<li>Closes the database connection and deletes local data</li>
+</ol>
+
+<CodeBlock code={leaveExample} lang="typescript" />
+
+<p>
+	After calling <code>leave()</code>, the database handle is closed and local data is deleted.
+	Remaining members receive the new epoch key and continue without you.
+</p>
+
+<p>
+	To delete your local copy without notifying others (e.g. you've already been removed),
+	use <code>db.destroy()</code> instead. See <a href="/docs#database-lifecycle">Database Lifecycle</a>.
 </p>
 
 <h2>Exporting Keys</h2>
