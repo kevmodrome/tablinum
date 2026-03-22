@@ -198,6 +198,30 @@ Use it in a component:
 - **`db.status`** tracks initialization and terminal state; **`db.syncStatus`** tracks sync activity
 - **`createTablinum(config)`** still exists as a convenience and resolves once `db.ready` completes
 
+### Database lifecycle
+
+```typescript
+// Release the connection. Data is preserved. Idempotent.
+yield* db.close();      // Effect
+await db.close();       // Svelte
+
+// Close and delete the local database.
+yield* db.destroy();    // Effect
+await db.destroy();     // Svelte
+
+// Leave a collaborative database: rotate the key to exclude yourself,
+// publish to relays, then close and delete locally.
+yield* db.leave();      // Effect
+await db.leave();       // Svelte
+```
+
+There is also a standalone `deleteDatabase(name?)` function for deleting an IndexedDB by name without opening it:
+
+```typescript
+import { deleteDatabase } from "tablinum";
+yield* deleteDatabase("my-app");
+```
+
 ## Logging
 
 Tablinum uses [Effect's built-in logging](https://effect.website/docs/observability/logging/) under the hood. By default, logging is completely silent. Set `logLevel` in your config to enable it:
