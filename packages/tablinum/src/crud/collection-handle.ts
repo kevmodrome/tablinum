@@ -5,7 +5,7 @@ import type { InferRecord } from "../schema/types.ts";
 import type { RecordValidator, PartialValidator } from "../schema/validate.ts";
 import type { IDBStorageHandle, StoredEvent } from "../storage/idb.ts";
 import { applyEvent } from "../storage/records-store.ts";
-import { deepDiff, deepMerge } from "../utils/diff.ts";
+import { deepMerge } from "../utils/diff.ts";
 import { NotFoundError, StorageError, ValidationError } from "../errors.ts";
 import { uuidv7 } from "../utils/uuid.ts";
 import type { WatchContext } from "./watch.ts";
@@ -186,13 +186,12 @@ export function createCollectionHandle<C extends CollectionDef<CollectionFields>
           const merged = { ...existingFields, ...data, id };
           yield* validator(merged);
 
-          const diff = deepDiff(existingFields, merged as Record<string, unknown>);
           const event: StoredEvent = {
             id: makeEventId(),
             collection: collectionName,
             recordId: id,
             kind: "u",
-            data: diff ?? { id },
+            data: merged as Record<string, unknown>,
             createdAt: Date.now(),
             author: localAuthor,
           };
@@ -200,7 +199,7 @@ export function createCollectionHandle<C extends CollectionDef<CollectionFields>
           yield* Effect.logDebug("Record updated", {
             collection: collectionName,
             recordId: id,
-            data: diff,
+            data: merged,
           });
 
           yield* pruneEvents(storage, collectionName, id, def.eventRetention);

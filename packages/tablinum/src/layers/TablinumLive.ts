@@ -21,6 +21,7 @@ import type { DatabaseHandle } from "../db/database-handle.ts";
 import {
   EpochId,
   getCurrentEpoch,
+  getDecryptionKey,
   addEpoch,
   stringifyEpochStore,
   exportEpochKeys,
@@ -30,6 +31,7 @@ import { createRotation } from "../db/key-rotation.ts";
 import { uuidv7 } from "../utils/uuid.ts";
 import { StorageError, SyncError, ValidationError } from "../errors.ts";
 import { deleteIDBStorage } from "../storage/idb.ts";
+import { createDeletionEvent } from "../sync/deletion.ts";
 
 import { Tablinum } from "../services/Tablinum.ts";
 import { Config } from "../services/Config.ts";
@@ -170,6 +172,18 @@ export const TablinumLive = Layer.effect(
         const gw = wrapResult.success;
         yield* storage.putGiftWrap({ id: gw.id, event: gw, createdAt: gw.created_at });
 
+        // Track which gift wrap represents this record so we can send
+        // a NIP-09 deletion for the previous one. NIP-59 specifies that
+        // relays SHOULD honor deletions signed by the p-tag recipient
+        // (the epoch key holder), so any member can clean up old events.
+        const metaKey = `gw_record:${event.collection}:${event.recordId}`;
+        const prevMapping = (yield* storage.getMeta(metaKey).pipe(
+          Effect.orElseSucceed(() => undefined),
+        )) as { gwId: string; epochPubKey: string } | undefined;
+
+        const epochPubKey = gw.tags.find((t: string[]) => t[0] === "p")?.[1];
+        yield* storage.putMeta(metaKey, { gwId: gw.id, epochPubKey });
+
         yield* Effect.forkIn(
           Effect.gen(function* () {
             const publishResult = yield* Effect.result(
@@ -182,9 +196,97 @@ export const TablinumLive = Layer.effect(
             if (publishResult._tag === "Failure") {
               reportSyncError(config.onSyncError, publishResult.failure);
             }
+
+            // NIP-09: delete the previous gift wrap for this record from relays
+            if (prevMapping?.epochPubKey) {
+              const signingKey = getDecryptionKey(epochStore, prevMapping.epochPubKey);
+              if (signingKey) {
+                const deletionEvent = createDeletionEvent(
+                  [prevMapping.gwId],
+                  signingKey,
+                );
+                yield* relay.publish(deletionEvent, [...config.relays]).pipe(
+                  Effect.tapError((e) =>
+                    Effect.sync(() => reportSyncError(config.onSyncError, e)),
+                  ),
+                  Effect.ignore,
+                );
+              }
+              yield* storage.deleteGiftWrap(prevMapping.gwId).pipe(Effect.ignore);
+            }
           }),
           scope,
         );
+      });
+
+    // Re-wrap all current record state under the current epoch key.
+    // Called during key rotation so that data is no longer exclusively
+    // stored under old epoch keys that removed members still hold.
+    const republishAllUnderCurrentEpoch = (): Effect.Effect<void, StorageError> =>
+      Effect.gen(function* () {
+        const oldGwDeletions: Array<{ gwId: string; epochPubKey: string }> = [];
+
+        for (const [, def] of allSchemaEntries) {
+          const collectionName = def.name;
+          const allRecords = yield* storage.getAllRecords(collectionName);
+
+          for (const record of allRecords) {
+            const recordId = record.id as string;
+            const { _d, _u, _a, _e, ...fields } = record;
+            const content = _d ? JSON.stringify(null) : JSON.stringify(fields);
+            const dTag = `${collectionName}:${recordId}`;
+
+            const wrapResult = yield* Effect.result(
+              giftWrap.wrap({
+                kind: 1,
+                content,
+                tags: [["d", dTag]],
+                created_at: Math.floor(Date.now() / 1000),
+              }),
+            );
+            if (wrapResult._tag === "Failure") continue;
+
+            const gw = wrapResult.success;
+            yield* storage.putGiftWrap({ id: gw.id, event: gw, createdAt: gw.created_at });
+
+            const metaKey = `gw_record:${collectionName}:${recordId}`;
+            const prevMapping = (yield* storage.getMeta(metaKey).pipe(
+              Effect.orElseSucceed(() => undefined),
+            )) as { gwId: string; epochPubKey: string } | undefined;
+
+            if (prevMapping) oldGwDeletions.push(prevMapping);
+
+            const epochPubKey = gw.tags.find((t: string[]) => t[0] === "p")?.[1];
+            yield* storage.putMeta(metaKey, { gwId: gw.id, epochPubKey });
+
+            yield* relay.publish(gw, [...config.relays]).pipe(
+              Effect.tapError((e) => Effect.sync(() => reportSyncError(config.onSyncError, e))),
+              Effect.ignore,
+            );
+          }
+        }
+
+        // Batch NIP-09 deletions grouped by epoch
+        const byEpoch = new Map<string, string[]>();
+        for (const { gwId, epochPubKey } of oldGwDeletions) {
+          const ids = byEpoch.get(epochPubKey) ?? [];
+          ids.push(gwId);
+          byEpoch.set(epochPubKey, ids);
+        }
+
+        for (const [epochPubKey, gwIds] of byEpoch) {
+          const signingKey = getDecryptionKey(epochStore, epochPubKey);
+          if (signingKey) {
+            const deletionEvent = createDeletionEvent(gwIds, signingKey);
+            yield* relay.publish(deletionEvent, [...config.relays]).pipe(
+              Effect.tapError((e) => Effect.sync(() => reportSyncError(config.onSyncError, e))),
+              Effect.ignore,
+            );
+          }
+          for (const gwId of gwIds) {
+            yield* storage.deleteGiftWrap(gwId).pipe(Effect.ignore);
+          }
+        }
       });
 
     const knownAuthors = new Set<string>();
@@ -282,6 +384,16 @@ export const TablinumLive = Layer.effect(
         addedAt: Date.now(),
         addedInEpoch: getCurrentEpoch(epochStore).id,
       });
+    }
+
+    // One-time migration: republish all records so that every record has
+    // a gw_record meta entry and a gift wrap under the current epoch.
+    const migrated = yield* storage.getMeta("migration_gw_republish").pipe(
+      Effect.orElseSucceed(() => undefined),
+    );
+    if (!migrated) {
+      yield* republishAllUnderCurrentEpoch().pipe(Effect.ignore);
+      yield* storage.putMeta("migration_gw_republish", true);
     }
 
     const withLog = <A, E>(effect: Effect.Effect<A, E>): Effect.Effect<A, E> =>
@@ -382,6 +494,11 @@ export const TablinumLive = Layer.effect(
               removedInEpoch: result.epoch.id,
             });
 
+            // Re-publish all data under the new epoch before leaving
+            // so remaining members' data survives if the leaving member
+            // later deletes old-epoch gift wraps.
+            yield* republishAllUnderCurrentEpoch();
+
             yield* Effect.forEach(
               result.wrappedEvents,
               (wrappedEvent) =>
@@ -470,6 +587,10 @@ export const TablinumLive = Layer.effect(
               removedAt: Date.now(),
               removedInEpoch: result.epoch.id,
             });
+
+            // Re-publish all data under the new epoch so the removed member
+            // cannot cause data loss by deleting old-epoch gift wraps.
+            yield* republishAllUnderCurrentEpoch();
 
             yield* Effect.forEach(
               result.wrappedEvents,
